@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ssl-tun-tunnel"
+version = "0.1.0"
+authors = [
+  { name="SSL TUN Tunnel Team", email="frbrgeorge@gmail.com" },
+]
+description = "A Python-based SSL TUN device tunnel"
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+]
+dependencies = []
+
+[project.urls]
+"Homepage" = "https://github.com/yourusername/ssl-tun-tunnel"
+"Bug Tracker" = "https://github.com/yourusername/ssl-tun-tunnel/issues"
+
+[project.scripts]
+ssl-tun-tunnel = "ssl_tun_tunnel.tunnel:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
