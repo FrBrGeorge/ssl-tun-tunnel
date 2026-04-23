@@ -3,7 +3,7 @@ import sys
 import logging
 import toml
 from pathlib import Path
-from .tunnel import run_server, run_client, generate_pem
+from .tunnel import run_server, run_client, generate_pem, get_cert_fingerprint
 
 def parse_address(address_port, default_address, default_port):
     """
@@ -71,7 +71,7 @@ def main():
     parser.add_argument('-t', '--timeout', type=float, default=1.0, help='Buffer flush timeout in seconds')
     parser.add_argument('--fill', choices=['all', 'throughput', 'none'], default='none', help='Random fill mode for flushed batches')
     parser.add_argument('--low-latency-dscp', type=str, default='0x48,0xb8', help='Comma-separated ToS/TC values that trigger immediate flush')
-    parser.add_argument('-f', '--fingerprint', type=str, help='Expected Z85 or HEX fingerprint (client mode)')
+    parser.add_argument('-f', '--fingerprint', nargs='?', const=True, help='Expected Z85 or HEX fingerprint (client). In server mode, providing this without a parameter prints the server fingerprint and exits.')
 
     args = parser.parse_args()
 
@@ -129,6 +129,14 @@ def main():
     if args.mode == 'server' and not cert_path.exists():
         logging.info(f"Certificate {cert_path} not found. Generating automatically...")
         generate_pem(cert_path)
+
+    # Print fingerprint and exit if requested in server mode
+    if args.mode == 'server' and args.fingerprint is True:
+        z85_fp = get_cert_fingerprint(cert_path, encoding='z85')
+        hex_fp = get_cert_fingerprint(cert_path, encoding='hex')
+        print(f"Server Fingerprint (Z85): {z85_fp}")
+        print(f"Server Fingerprint (HEX): {hex_fp}")
+        sys.exit(0)
 
     if args.mode == 'server':
         run_server(host, port, args.cert, args.key, args.tun_ip, log_packet_size, args.buffered, args.timeout, dscp_set, args.fill)

@@ -17,7 +17,7 @@ A high-performance, secure Layer 3 (IP) tunneling solution written in Python. It
 ### Prerequisites
 
 - **Linux**: TUN devices are a Linux kernel feature.
-- **Python 3.7+**: Required for the tunnel core.
+- **Python 3.13+**: Required for the tunnel core.
 - **OpenSSL**: Required for certificate generation.
 
 ### Setup as a Python Package
@@ -78,7 +78,9 @@ log_packet_size = "none"
 - **Granular Logging**: `--log-packet-size=in/out/both/none` (Default: `none`).
 - **Buffering**: `-b` to enable, `-t` to set timeout (Default: `1.0s`).
 - **Priority Flush**: `--low-latency-dscp` (Default: `0x48,0xb8`) flushes buffer immediately on matching IP headers.
-- **Fingerprint Verification**: `--fingerprint <SHA256>` protects against MITM.
+- **Random Fill**: `--fill=all/throughput/none` to pad batches with random noise to obfuscate traffic patterns.
+- **Fingerprint Verification**: `-f` / `--fingerprint <SHA256>` in client mode protects against MITM. 
+- **Fingerprint Reporting**: In server mode, run `ssl-tun-tunnel -m server -f` to display the active certificate's fingerprints (Z85 and HEX) and exit.
 
 ## Testing
 
