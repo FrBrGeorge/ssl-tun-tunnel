@@ -25,8 +25,12 @@ cert = "server.pem"
 buffered = true
 
 # Buffer flush timeout in seconds
-# Default: 1.0 (Increased from 0.1)
+# Default: 1.0
 timeout = 1.0
+
+# Random fill mode for flushed batches: "all", "throughput", or "none"
+# Default: "none"
+fill = "none"
 
 # Comma-separated ToS/TC values that trigger immediate flush
 # Default: "0x48,0xb8"
@@ -42,5 +46,5 @@ log_packet_size = "none"
 # Increase output verbosity
 # verbose = true
 
-# Expected SHA256 fingerprint of the server certificate (client mode only)
-# fingerprint = "AA:BB:CC..."
+# Expected SHA256 fingerprint (Z85 or HEX format) of the server certificate (client mode only)
+# fingerprint = "u9T8..."

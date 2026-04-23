@@ -9,6 +9,7 @@ import sys
 import logging
 import hashlib
 import time
+import base64
 from pathlib import Path
 
 # TUN constants
@@ -84,15 +85,38 @@ def generate_pem(filename='server.pem'):
         logging.exception(f"Error generating PEM: {filename}")
         sys.exit(1)
 
-def get_cert_fingerprint(certfile):
+def get_cert_fingerprint(certfile, encoding='z85'):
     try:
         output = subprocess.check_output([
             'openssl', 'x509', '-in', str(certfile), '-noout', '-fingerprint', '-sha256'
         ], stderr=subprocess.DEVNULL).decode('utf-8')
-        return output.strip().split('=')[1]
+        hex_fp = output.strip().split('=')[1].replace(':', '')
+        raw_fp = bytes.fromhex(hex_fp)
+        if encoding == 'z85':
+            return base64.z85encode(raw_fp).decode('ascii')
+        return ":".join(hex_fp[i:i+2] for i in range(0, len(hex_fp), 2))
     except Exception:
         logging.error(f"Failed to get certificate fingerprint for {certfile}", exc_info=True)
         return None
+
+def verify_fingerprint(actual_der, expected_str):
+    actual_raw = hashlib.sha256(actual_der).digest()
+    
+    # Try z85 decode first, then hex
+    try:
+        expected_raw = base64.z85decode(expected_str)
+    except Exception:
+        try:
+            expected_raw = bytes.fromhex(expected_str.replace(':', ''))
+        except Exception:
+            return False, "Invalid fingerprint format"
+            
+    if actual_raw == expected_raw:
+        return True, ""
+        
+    actual_z85 = base64.z85encode(actual_raw).decode('ascii')
+    actual_hex = ":".join(f"{b:02X}" for b in actual_raw)
+    return False, f"Mismatched!\nActual (Z85): {actual_z85}\nActual (HEX): {actual_hex}"
 
 def get_packet_info(packet):
     """Simple parser for basic IP protocol info."""
@@ -126,7 +150,7 @@ def is_low_latency(packet, dscp_set):
         return tc in dscp_set
     return False
 
-def run_server(host, port, certfile, keyfile, tun_ip, log_packet_size=None, buffered=False, timeout=1.0, low_latency_dscp=None):
+def run_server(host, port, certfile, keyfile, tun_ip, log_packet_size=None, buffered=False, timeout=1.0, low_latency_dscp=None, fill='none'):
     """
     Runs the tunnel in server mode.
     
@@ -140,6 +164,7 @@ def run_server(host, port, certfile, keyfile, tun_ip, log_packet_size=None, buff
         buffered (bool): Enable packet buffering.
         timeout (float): Buffer flush timeout in seconds.
         low_latency_dscp (set): Set of ToS/TC bytes that trigger immediate flush.
+        fill (str): Random fill mode ('all', 'throughput', 'none').
     """
     tun_fd = create_tun()
     if tun_fd is None: return
@@ -155,7 +180,7 @@ def run_server(host, port, certfile, keyfile, tun_ip, log_packet_size=None, buff
 
     fingerprint = get_cert_fingerprint(certfile)
     if fingerprint:
-        logging.info(f"Server SHA256 Fingerprint: {fingerprint}")
+        logging.info(f"Server Fingerprint (Z85): {fingerprint}")
 
     server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -169,13 +194,13 @@ def run_server(host, port, certfile, keyfile, tun_ip, log_packet_size=None, buff
         logging.info(f"Connection from {addr}")
         try:
             ssl_sock = context.wrap_socket(client_sock, server_side=True)
-            handle_tunnel(tun_fd, ssl_sock, log_packet_size, buffered, timeout, low_latency_dscp)
+            handle_tunnel(tun_fd, ssl_sock, log_packet_size, buffered, timeout, low_latency_dscp, fill)
         except Exception:
             logging.exception(f"Connection error from {addr}")
         finally:
             client_sock.close()
 
-def run_client(server_host, server_port, tun_ip, log_packet_size=None, expected_fingerprint=None, buffered=False, timeout=1.0, low_latency_dscp=None):
+def run_client(server_host, server_port, tun_ip, log_packet_size=None, expected_fingerprint=None, buffered=False, timeout=1.0, low_latency_dscp=None, fill='none'):
     """
     Runs the tunnel in client mode.
     
@@ -184,10 +209,11 @@ def run_client(server_host, server_port, tun_ip, log_packet_size=None, expected_
         server_port (int): The server port.
         tun_ip (str): IP/CIDR for the TUN interface.
         log_packet_size (str): Granular packet logging ('in', 'out', 'both').
-        expected_fingerprint (str): Expected SHA256 fingerprint of the server certificate.
+        expected_fingerprint (str): Expected Z85 or HEX fingerprint of the server certificate.
         buffered (bool): Enable packet buffering.
         timeout (float): Buffer flush timeout in seconds.
         low_latency_dscp (set): Set of ToS/TC bytes that trigger immediate flush.
+        fill (str): Random fill mode ('all', 'throughput', 'none').
     """
     tun_fd = create_tun()
     if tun_fd is None: return
@@ -207,26 +233,20 @@ def run_client(server_host, server_port, tun_ip, log_packet_size=None, expected_
         
         if expected_fingerprint:
             der_cert = ssl_sock.getpeercert(binary_form=True)
-            fingerprint = hashlib.sha256(der_cert).hexdigest().upper()
-            formatted_fp = ":".join(fingerprint[i:i+2] for i in range(0, len(fingerprint), 2))
+            success, error_msg = verify_fingerprint(der_cert, expected_fingerprint)
             
-            clean_expected = expected_fingerprint.upper().replace(":", "")
-            clean_actual = formatted_fp.replace(":", "")
-            
-            if clean_actual != clean_expected:
-                logging.error("FINGERPRINT MISMATCH!")
-                logging.error(f"Expected: {expected_fingerprint.upper()}")
-                logging.error(f"Actual:   {formatted_fp}")
+            if not success:
+                logging.error(f"FINGERPRINT ERROR: {error_msg}")
                 ssl_sock.close()
                 return
             logging.info("Certificate fingerprint verified.")
 
         logging.info("Connected.")
-        handle_tunnel(tun_fd, ssl_sock, log_packet_size, buffered, timeout, low_latency_dscp)
+        handle_tunnel(tun_fd, ssl_sock, log_packet_size, buffered, timeout, low_latency_dscp, fill)
     except Exception:
         logging.exception(f"Connection failed to {server_host}:{server_port}")
 
-def handle_tunnel(tun_fd, ssl_sock, log_packet_size=None, buffered=False, timeout=1.0, low_latency_dscp=None):
+def handle_tunnel(tun_fd, ssl_sock, log_packet_size=None, buffered=False, timeout=1.0, low_latency_dscp=None, fill='none'):
     """
     Handles the bidirectional traffic between the TUN device and the SSL socket.
     
@@ -237,6 +257,7 @@ def handle_tunnel(tun_fd, ssl_sock, log_packet_size=None, buffered=False, timeou
         buffered (bool): Enable packet buffering for TUN -> SSL.
         timeout (float): Buffer flush timeout in seconds.
         low_latency_dscp (set): Set of ToS/TC bytes that trigger immediate flush.
+        fill (str): Random fill mode ('all', 'throughput', 'none').
     """
     ssl_sock.setblocking(0)
     
@@ -244,24 +265,39 @@ def handle_tunnel(tun_fd, ssl_sock, log_packet_size=None, buffered=False, timeou
     pkt_buffer = []
     buffer_bytes = 0
     last_flush = time.time()
+    
+    JUNK_BIT = 0x8000
 
     log_in = log_packet_size in ('in', 'both')
     log_out = log_packet_size in ('out', 'both')
 
-    def flush_buffer():
+    def flush_buffer(is_low_latency_triggered=False):
         nonlocal pkt_buffer, buffer_bytes, last_flush
         if not pkt_buffer:
             return
         
         data = b''
         bunch_info = []
+        wire_bytes = 0
         for p in pkt_buffer:
             data += struct.pack('!H', len(p)) + p
+            wire_bytes += len(p) + 2
             if log_out:
                 bunch_info.append(f"{len(p)}[{get_packet_info(p)}]")
         
+        # Apply random fill
+        do_fill = (fill == 'all') or (fill == 'throughput' and not is_low_latency_triggered)
+        if do_fill:
+            space_left = TCP_MSS_FLUSH_THRESHOLD - wire_bytes
+            if space_left >= 2:
+                junk_len = space_left - 2
+                junk_data = os.urandom(junk_len)
+                data += struct.pack('!H', junk_len | JUNK_BIT) + junk_data
+                if log_out:
+                    bunch_info.append(f"{junk_len}[JUNK]")
+        
         if log_out:
-            logging.info(f"TUN -> SSL [BUNCH]: {len(pkt_buffer)} pkts, total {buffer_bytes} bytes. Details: {', '.join(bunch_info)}")
+            logging.info(f"TUN -> SSL [BUNCH]: {len(pkt_buffer)} pkts, total {len(data)} bytes on wire. Details: {', '.join(bunch_info)}")
             
         ssl_sock.sendall(data)
         pkt_buffer = []
@@ -288,8 +324,9 @@ def handle_tunnel(tun_fd, ssl_sock, log_packet_size=None, buffered=False, timeou
             if buffered:
                 pkt_buffer.append(packet)
                 buffer_bytes += len(packet)
-                if buffer_bytes >= TCP_MSS_FLUSH_THRESHOLD or is_low_latency(packet, low_latency_dscp):
-                    flush_buffer()
+                is_ll = is_low_latency(packet, low_latency_dscp)
+                if buffer_bytes >= TCP_MSS_FLUSH_THRESHOLD or is_ll:
+                    flush_buffer(is_ll)
             else:
                 if log_out:
                     logging.info(f"TUN -> SSL: {len(packet)} bytes [{get_packet_info(packet)}]")
@@ -299,7 +336,6 @@ def handle_tunnel(tun_fd, ssl_sock, log_packet_size=None, buffered=False, timeou
         if ssl_sock in r:
             try:
                 # We might receive multiple packets in the socket buffer
-                # Read at least one, and potentially more if they are already there
                 should_break = False
                 while True:
                     try:
@@ -311,7 +347,9 @@ def handle_tunnel(tun_fd, ssl_sock, log_packet_size=None, buffered=False, timeou
                         should_break = True
                         break # EOF
                     
-                    length = struct.unpack('!H', header)[0]
+                    val = struct.unpack('!H', header)[0]
+                    is_junk = bool(val & JUNK_BIT)
+                    length = val & ~JUNK_BIT
                     
                     # Read packet data
                     packet = b''
@@ -322,10 +360,12 @@ def handle_tunnel(tun_fd, ssl_sock, log_packet_size=None, buffered=False, timeou
                             break
                         packet += chunk
                     
-                    if packet:
+                    if packet and not is_junk:
                         if log_in:
                             logging.info(f"SSL -> TUN: {len(packet)} bytes [{get_packet_info(packet)}]")
                         os.write(tun_fd, packet)
+                    elif packet and is_junk and log_in:
+                        logging.info(f"SSL -> TUN: {len(packet)} bytes [JUNK - dropped]")
                     
                     if should_break:
                         break

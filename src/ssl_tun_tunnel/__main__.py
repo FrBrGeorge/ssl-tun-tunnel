@@ -69,8 +69,9 @@ def main():
     parser.add_argument('-v', '--verbose', action='store_true', help='Increase output verbosity')
     parser.add_argument('-b', '--buffered', action='store_true', help='Enable packet buffering')
     parser.add_argument('-t', '--timeout', type=float, default=1.0, help='Buffer flush timeout in seconds')
+    parser.add_argument('--fill', choices=['all', 'throughput', 'none'], default='none', help='Random fill mode for flushed batches')
     parser.add_argument('--low-latency-dscp', type=str, default='0x48,0xb8', help='Comma-separated ToS/TC values that trigger immediate flush')
-    parser.add_argument('--fingerprint', type=str, help='Expected SHA256 fingerprint (client mode)')
+    parser.add_argument('-f', '--fingerprint', type=str, help='Expected Z85 or HEX fingerprint (client mode)')
 
     args = parser.parse_args()
 
@@ -130,9 +131,9 @@ def main():
         generate_pem(cert_path)
 
     if args.mode == 'server':
-        run_server(host, port, args.cert, args.key, args.tun_ip, log_packet_size, args.buffered, args.timeout, dscp_set)
+        run_server(host, port, args.cert, args.key, args.tun_ip, log_packet_size, args.buffered, args.timeout, dscp_set, args.fill)
     else:
-        run_client(host, port, args.tun_ip, log_packet_size, args.fingerprint, args.buffered, args.timeout, dscp_set)
+        run_client(host, port, args.tun_ip, log_packet_size, args.fingerprint, args.buffered, args.timeout, dscp_set, args.fill)
 
 if __name__ == "__main__":
     main()
