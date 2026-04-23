@@ -10,6 +10,8 @@ A high-performance, secure Layer 3 (IP) tunneling solution written in Python. It
 - **PEM Support**: Supports combined `.pem` files for easy certificate management.
 - **Auto-Generation**: Built-in utility to generate self-signed certificates.
 
+> **Note**: Creating and configuring TUN devices requires superuser (root) privileges. You will typically need to run these commands with `sudo`.
+
 ## Installation
 
 ### Prerequisites
@@ -40,19 +42,22 @@ ssl-tun-tunnel -g server.pem
 
 **2. Start the Server:**
 ```bash
-# Listen on port 1443
-sudo ssl-tun-tunnel 1443 -m server -i 192.168.255.1/24
+# Listen on all interfaces on port 1443
+ssl-tun-tunnel 1443 -m server -i 192.168.255.1/24
+
+# Listen on a specific address only
+ssl-tun-tunnel 127.0.0.1:1443 -m server -i 192.168.255.1/24
 ```
 
 **3. Start the Client:**
 ```bash
 # Connect to SERVER_IP:1443. Client mode is the default.
-sudo ssl-tun-tunnel <SERVER_IP>:1443 -i 192.168.255.2/24
+ssl-tun-tunnel <SERVER_IP>:1443 -i 192.168.255.2/24
 ```
 
 **4. Using a configuration file:**
 ```bash
-sudo ssl-tun-tunnel -c config.toml
+ssl-tun-tunnel -c config.toml
 ```
 
 ## Configuration
@@ -65,7 +70,7 @@ address = "localhost:1443"
 tun_ip = "192.168.255.2/24"
 buffered = true
 timeout = 1.0
-log_packet_size = "out"
+log_packet_size = "none"
 ```
 
 ## Advanced Options

@@ -4,17 +4,23 @@ import struct
 import socket
 import ssl
 import select
-import argparse
 import subprocess
 import sys
 import logging
 import hashlib
 import time
+from pathlib import Path
 
 # TUN constants
 TUNSETIFF = 0x400454ca
 IFF_TUN = 0x0001
 IFF_NO_PI = 0x1000
+
+# Network constants
+DEFAULT_MTU = 1500
+# Buffer threshold to fit within a single standard Ethernet frame after SSL/TCP overhead.
+# 1500 (MTU) - 20 (IP) - 20 (TCP) - 10 (SSL/Length safety) = 1450.
+TCP_MSS_FLUSH_THRESHOLD = DEFAULT_MTU - 50
 
 def create_tun(name='tun0'):
     """
@@ -62,14 +68,15 @@ def generate_pem(filename='server.pem'):
     Generates a self-signed certificate and private key in a single .pem file.
     
     Args:
-        filename (str): The name of the file to save the PEM data to.
+        filename (str or Path): The name of the file to save the PEM data to.
     """
+    filename = Path(filename)
     logging.info(f"Generating self-signed PEM: {filename}...")
     try:
         # Generate a self-signed certificate and key in one file
         subprocess.run([
             'openssl', 'req', '-x509', '-newkey', 'rsa:4096', 
-            '-keyout', filename, '-out', filename, 
+            '-keyout', str(filename), '-out', str(filename), 
             '-days', '365', '-nodes', '-subj', '/CN=localhost'
         ], check=True)
         logging.info(f"Successfully generated {filename}")
@@ -80,7 +87,7 @@ def generate_pem(filename='server.pem'):
 def get_cert_fingerprint(certfile):
     try:
         output = subprocess.check_output([
-            'openssl', 'x509', '-in', certfile, '-noout', '-fingerprint', '-sha256'
+            'openssl', 'x509', '-in', str(certfile), '-noout', '-fingerprint', '-sha256'
         ], stderr=subprocess.DEVNULL).decode('utf-8')
         return output.strip().split('=')[1]
     except Exception:
@@ -119,14 +126,15 @@ def is_low_latency(packet, dscp_set):
         return tc in dscp_set
     return False
 
-def run_server(port, certfile, keyfile, tun_ip, log_packet_size=None, buffered=False, timeout=1.0, low_latency_dscp=None):
+def run_server(host, port, certfile, keyfile, tun_ip, log_packet_size=None, buffered=False, timeout=1.0, low_latency_dscp=None):
     """
     Runs the tunnel in server mode.
     
     Args:
+        host (str): The address to bind to.
         port (int): The port to listen on.
-        certfile (str): Path to the certificate file (or PEM containing both).
-        keyfile (str): Path to the private key file (optional if certfile is a combined PEM).
+        certfile (str or Path): Path to the certificate file (or PEM containing both).
+        keyfile (str or Path): Path to the private key file (optional if certfile is a combined PEM).
         tun_ip (str): IP/CIDR for the TUN interface.
         log_packet_size (str): Granular packet logging ('in', 'out', 'both').
         buffered (bool): Enable packet buffering.
@@ -135,11 +143,12 @@ def run_server(port, certfile, keyfile, tun_ip, log_packet_size=None, buffered=F
     """
     tun_fd = create_tun()
     if tun_fd is None: return
-    configure_ip('tun0', tun_ip)
+    if tun_ip:
+        configure_ip('tun0', tun_ip)
 
     context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
     try:
-        context.load_cert_chain(certfile=certfile, keyfile=keyfile)
+        context.load_cert_chain(certfile=str(certfile), keyfile=str(keyfile) if keyfile else None)
     except Exception:
         logging.exception(f"Error loading certificates from {certfile}")
         return
@@ -150,10 +159,10 @@ def run_server(port, certfile, keyfile, tun_ip, log_packet_size=None, buffered=F
 
     server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_sock.bind(('0.0.0.0', port))
+    server_sock.bind((host, port))
     server_sock.listen(1)
 
-    logging.info(f"Server listening on port {port}...")
+    logging.info(f"Server listening on {host}:{port}...")
 
     while True:
         client_sock, addr = server_sock.accept()
@@ -182,7 +191,8 @@ def run_client(server_host, server_port, tun_ip, log_packet_size=None, expected_
     """
     tun_fd = create_tun()
     if tun_fd is None: return
-    configure_ip('tun0', tun_ip)
+    if tun_ip:
+        configure_ip('tun0', tun_ip)
 
     context = ssl.create_default_context()
     context.check_hostname = False
@@ -234,7 +244,6 @@ def handle_tunnel(tun_fd, ssl_sock, log_packet_size=None, buffered=False, timeou
     pkt_buffer = []
     buffer_bytes = 0
     last_flush = time.time()
-    MAX_BUF = 1450 # Typical TCP segment size limit for efficiency
 
     log_in = log_packet_size in ('in', 'both')
     log_out = log_packet_size in ('out', 'both')
@@ -269,7 +278,7 @@ def handle_tunnel(tun_fd, ssl_sock, log_packet_size=None, buffered=False, timeou
         
         # Flush if timeout or buffer large enough
         if buffered and pkt_buffer:
-            if not r or buffer_bytes >= MAX_BUF:
+            if not r or buffer_bytes >= TCP_MSS_FLUSH_THRESHOLD:
                 flush_buffer()
         
         if tun_fd in r:
@@ -279,7 +288,7 @@ def handle_tunnel(tun_fd, ssl_sock, log_packet_size=None, buffered=False, timeou
             if buffered:
                 pkt_buffer.append(packet)
                 buffer_bytes += len(packet)
-                if buffer_bytes >= MAX_BUF or is_low_latency(packet, low_latency_dscp):
+                if buffer_bytes >= TCP_MSS_FLUSH_THRESHOLD or is_low_latency(packet, low_latency_dscp):
                     flush_buffer()
             else:
                 if log_out:
