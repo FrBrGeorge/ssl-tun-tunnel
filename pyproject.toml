@@ -23,7 +23,7 @@ dependencies = []
 "Bug Tracker" = "https://github.com/yourusername/ssl-tun-tunnel/issues"
 
 [project.scripts]
-ssl-tun-tunnel = "ssl_tun_tunnel.tunnel:main"
+ssl-tun-tunnel = "ssl_tun_tunnel.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

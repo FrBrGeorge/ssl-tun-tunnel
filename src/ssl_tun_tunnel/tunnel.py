@@ -9,6 +9,8 @@ import subprocess
 import sys
 import logging
 
+import hashlib
+
 # TUN constants
 TUNSETIFF = 0x400454ca
 IFF_TUN = 0x0001
@@ -51,8 +53,8 @@ def configure_ip(name, ip_cidr):
     try:
         subprocess.run(['ip', 'addr', 'add', ip_cidr, 'dev', name], check=True)
         subprocess.run(['ip', 'link', 'set', 'dev', name, 'up'], check=True)
-    except Exception as e:
-        logging.warning(f"Warning: Failed to configure IP via 'ip' command: {e}")
+    except Exception:
+        logging.exception(f"Failed to configure IP via 'ip' command for {name}")
         logging.warning("You may need to configure it manually.")
 
 def generate_pem(filename='server.pem'):
@@ -71,9 +73,36 @@ def generate_pem(filename='server.pem'):
             '-days', '365', '-nodes', '-subj', '/CN=localhost'
         ], check=True)
         logging.info(f"Successfully generated {filename}")
-    except Exception as e:
-        logging.error(f"Error generating PEM: {e}")
+    except Exception:
+        logging.exception(f"Error generating PEM: {filename}")
         sys.exit(1)
+
+def get_cert_fingerprint(certfile):
+    try:
+        output = subprocess.check_output([
+            'openssl', 'x509', '-in', certfile, '-noout', '-fingerprint', '-sha256'
+        ], stderr=subprocess.DEVNULL).decode('utf-8')
+        return output.strip().split('=')[1]
+    except Exception:
+        logging.error(f"Failed to get certificate fingerprint for {certfile}", exc_info=True)
+        return None
+
+def get_packet_info(packet):
+    """Simple parser for basic IP protocol info."""
+    if not packet or len(packet) < 20:
+        return "Unknown"
+    version = packet[0] >> 4
+    if version == 4:
+        proto = packet[9]
+        proto_map = {1: 'ICMP', 2: 'IGMP', 6: 'TCP', 17: 'UDP', 47: 'GRE', 50: 'ESP', 51: 'AH', 89: 'OSPF'}
+        return f"IPv4/{proto_map.get(proto, proto)}"
+    elif version == 6:
+        if len(packet) < 40: return "IPv6 (Truncated)"
+        proto = packet[6]
+        # Simplistic next-header check
+        proto_map = {1: 'ICMP', 6: 'TCP', 17: 'UDP', 58: 'ICMPv6'}
+        return f"IPv6/{proto_map.get(proto, proto)}"
+    return f"v{version}"
 
 def run_server(port, certfile, keyfile, tun_ip, log_packet_size=False):
     """
@@ -93,9 +122,13 @@ def run_server(port, certfile, keyfile, tun_ip, log_packet_size=False):
     context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
     try:
         context.load_cert_chain(certfile=certfile, keyfile=keyfile)
-    except Exception as e:
-        logging.error(f"Error loading certificates: {e}")
+    except Exception:
+        logging.exception(f"Error loading certificates from {certfile}")
         return
+
+    fingerprint = get_cert_fingerprint(certfile)
+    if fingerprint:
+        logging.info(f"Server SHA256 Fingerprint: {fingerprint}")
 
     server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -110,12 +143,12 @@ def run_server(port, certfile, keyfile, tun_ip, log_packet_size=False):
         try:
             ssl_sock = context.wrap_socket(client_sock, server_side=True)
             handle_tunnel(tun_fd, ssl_sock, log_packet_size)
-        except Exception as e:
-            logging.error(f"Connection error: {e}")
+        except Exception:
+            logging.exception(f"Connection error from {addr}")
         finally:
             client_sock.close()
 
-def run_client(server_host, server_port, tun_ip, log_packet_size=False):
+def run_client(server_host, server_port, tun_ip, log_packet_size=False, expected_fingerprint=None):
     """
     Runs the tunnel in client mode.
     
@@ -124,6 +157,7 @@ def run_client(server_host, server_port, tun_ip, log_packet_size=False):
         server_port (int): The server port.
         tun_ip (str): IP/CIDR for the TUN interface.
         log_packet_size (bool): Whether to log every packet size.
+        expected_fingerprint (str): Expected SHA256 fingerprint of the server certificate.
     """
     tun_fd = create_tun()
     if tun_fd is None: return
@@ -139,10 +173,27 @@ def run_client(server_host, server_port, tun_ip, log_packet_size=False):
     logging.info(f"Connecting to {server_host}:{server_port}...")
     try:
         ssl_sock.connect((server_host, server_port))
+        
+        if expected_fingerprint:
+            der_cert = ssl_sock.getpeercert(binary_form=True)
+            fingerprint = hashlib.sha256(der_cert).hexdigest().upper()
+            formatted_fp = ":".join(fingerprint[i:i+2] for i in range(0, len(fingerprint), 2))
+            
+            clean_expected = expected_fingerprint.upper().replace(":", "")
+            clean_actual = formatted_fp.replace(":", "")
+            
+            if clean_actual != clean_expected:
+                logging.error("FINGERPRINT MISMATCH!")
+                logging.error(f"Expected: {expected_fingerprint.upper()}")
+                logging.error(f"Actual:   {formatted_fp}")
+                ssl_sock.close()
+                return
+            logging.info("Certificate fingerprint verified.")
+
         logging.info("Connected.")
         handle_tunnel(tun_fd, ssl_sock, log_packet_size)
-    except Exception as e:
-        logging.error(f"Connection failed: {e}")
+    except Exception:
+        logging.exception(f"Connection failed to {server_host}:{server_port}")
 
 def handle_tunnel(tun_fd, ssl_sock, log_packet_size=False):
     """
@@ -162,7 +213,7 @@ def handle_tunnel(tun_fd, ssl_sock, log_packet_size=False):
             packet = os.read(tun_fd, 2048)
             if not packet: break
             if log_packet_size:
-                logging.info(f"TUN -> SSL: {len(packet)} bytes")
+                logging.info(f"TUN -> SSL: {len(packet)} bytes [{get_packet_info(packet)}]")
             # Send length-prefixed packet over SSL
             # Header is 2 bytes (unsigned short, big-endian)
             ssl_sock.sendall(struct.pack('!H', len(packet)) + packet)
@@ -183,50 +234,10 @@ def handle_tunnel(tun_fd, ssl_sock, log_packet_size=False):
                 
                 if packet:
                     if log_packet_size:
-                        logging.info(f"SSL -> TUN: {len(packet)} bytes")
+                        logging.info(f"SSL -> TUN: {len(packet)} bytes [{get_packet_info(packet)}]")
                     os.write(tun_fd, packet)
             except ssl.SSLWantReadError:
                 continue
-            except Exception as e:
-                logging.error(f"Tunnel error: {e}")
+            except Exception:
+                logging.exception("Tunnel error during socket processing")
                 break
-
-def main():
-    parser = argparse.ArgumentParser(description='SSL TUN Tunnel')
-    parser.add_argument('--mode', choices=['server', 'client'], help='Mode of operation')
-    parser.add_argument('--port', type=int, default=1443, help='Port to listen on or connect to')
-    parser.add_argument('--host', type=str, default='localhost', help='Server host (client mode only)')
-    parser.add_argument('--tun-ip', type=str, help='IP/CIDR for tun0 (e.g. 192.168.255.1/24)')
-    parser.add_argument('--cert', type=str, default='server.crt', help='Cert file or combined .pem file')
-    parser.add_argument('--key', type=str, help='Key file (optional if using combined .pem)')
-    parser.add_argument('--generate-pem', type=str, help='Generate a self-signed .pem file and exit')
-    parser.add_argument('--log-file', type=str, help='Path to a log file')
-    parser.add_argument('--log-packet-size', action='store_true', help='Log every packet size')
-
-    args = parser.parse_args()
-
-    # Configure logging
-    log_handlers = [logging.StreamHandler(sys.stdout)]
-    if args.log_file:
-        log_handlers.append(logging.FileHandler(args.log_file))
-    
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s [%(levelname)s] %(message)s',
-        handlers=log_handlers
-    )
-
-    if args.generate_pem:
-        generate_pem(args.generate_pem)
-        sys.exit(0)
-
-    if not args.mode or not args.tun_ip:
-        parser.error("--mode and --tun-ip are required unless using --generate-pem")
-
-    if args.mode == 'server':
-        run_server(args.port, args.cert, args.key, args.tun_ip, args.log_packet_size)
-    else:
-        run_client(args.host, args.port, args.tun_ip, args.log_packet_size)
-
-if __name__ == "__main__":
-    main()
