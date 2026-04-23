@@ -59,4 +59,4 @@ This tool uses self-signed certificates by default. For production environments,
 
 ## License
 
-Apache-2.0
+MIT
