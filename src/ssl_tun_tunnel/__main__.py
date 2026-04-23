@@ -16,6 +16,9 @@ def main():
     parser.add_argument('-l', '--log-file', type=str, help='Path to a log file')
     parser.add_argument('--log-packet-size', action='store_true', help='Log every packet size')
     parser.add_argument('-v', '--verbose', action='store_true', help='Increase output verbosity')
+    parser.add_argument('-b', '--buffered', action='store_true', help='Enable packet buffering')
+    parser.add_argument('-t', '--timeout', type=float, default=0.1, help='Buffer flush timeout in seconds (default: 0.1)')
+    parser.add_argument('--low-latency-dscp', type=str, default='0x48,0xb8', help='Comma-separated ToS/TC values that trigger immediate flush (default: 0x48,0xb8)')
     parser.add_argument('--fingerprint', type=str, help='Expected SHA256 fingerprint of the server certificate (client mode)')
 
     args = parser.parse_args()
@@ -47,6 +50,19 @@ def main():
         file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
 
+    # Parse low-latency DSCP values
+    low_latency_dscp = set()
+    if args.low_latency_dscp:
+        try:
+            for val in args.low_latency_dscp.split(','):
+                val = val.strip()
+                if val.startswith('0x'):
+                    low_latency_dscp.add(int(val, 16))
+                else:
+                    low_latency_dscp.add(int(val))
+        except ValueError as e:
+            parser.error(f"Invalid DSCP value in --low-latency-dscp: {e}")
+
     if args.generate:
         generate_pem(args.generate)
         sys.exit(0)
@@ -60,9 +76,9 @@ def main():
         parser.error("--mode and --tun-ip are required unless using --generate")
 
     if args.mode == 'server':
-        run_server(args.port, args.cert, args.key, args.tun_ip, args.log_packet_size)
+        run_server(args.port, args.cert, args.key, args.tun_ip, args.log_packet_size, args.buffered, args.timeout, low_latency_dscp)
     else:
-        run_client(args.host, args.port, args.tun_ip, args.log_packet_size, args.fingerprint)
+        run_client(args.host, args.port, args.tun_ip, args.log_packet_size, args.fingerprint, args.buffered, args.timeout, low_latency_dscp)
 
 if __name__ == "__main__":
     main()

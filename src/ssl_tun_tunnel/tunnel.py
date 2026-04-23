@@ -8,8 +8,8 @@ import argparse
 import subprocess
 import sys
 import logging
-
 import hashlib
+import time
 
 # TUN constants
 TUNSETIFF = 0x400454ca
@@ -94,17 +94,32 @@ def get_packet_info(packet):
     version = packet[0] >> 4
     if version == 4:
         proto = packet[9]
+        tos = packet[1]
         proto_map = {1: 'ICMP', 2: 'IGMP', 6: 'TCP', 17: 'UDP', 47: 'GRE', 50: 'ESP', 51: 'AH', 89: 'OSPF'}
-        return f"IPv4/{proto_map.get(proto, proto)}"
+        return f"IPv4/{proto_map.get(proto, proto)} ToS=0x{tos:02x}"
     elif version == 6:
         if len(packet) < 40: return "IPv6 (Truncated)"
         proto = packet[6]
+        tc = (packet[0] & 0x0F) << 4 | (packet[1] >> 4)
         # Simplistic next-header check
         proto_map = {1: 'ICMP', 6: 'TCP', 17: 'UDP', 58: 'ICMPv6'}
-        return f"IPv6/{proto_map.get(proto, proto)}"
+        return f"IPv6/{proto_map.get(proto, proto)} TC=0x{tc:02x}"
     return f"v{version}"
 
-def run_server(port, certfile, keyfile, tun_ip, log_packet_size=False):
+def is_low_latency(packet, dscp_set):
+    """Checks if the packet has a low-latency DSCP/ToS value."""
+    if not dscp_set or not packet or len(packet) < 2:
+        return False
+    version = packet[0] >> 4
+    if version == 4:
+        tos = packet[1]
+        return tos in dscp_set
+    elif version == 6:
+        tc = (packet[0] & 0x0F) << 4 | (packet[1] >> 4)
+        return tc in dscp_set
+    return False
+
+def run_server(port, certfile, keyfile, tun_ip, log_packet_size=False, buffered=False, timeout=0.1, low_latency_dscp=None):
     """
     Runs the tunnel in server mode.
     
@@ -114,6 +129,9 @@ def run_server(port, certfile, keyfile, tun_ip, log_packet_size=False):
         keyfile (str): Path to the private key file (optional if certfile is a combined PEM).
         tun_ip (str): IP/CIDR for the TUN interface.
         log_packet_size (bool): Whether to log every packet size.
+        buffered (bool): Enable packet buffering.
+        timeout (float): Buffer flush timeout in seconds.
+        low_latency_dscp (set): Set of ToS/TC bytes that trigger immediate flush.
     """
     tun_fd = create_tun()
     if tun_fd is None: return
@@ -142,13 +160,13 @@ def run_server(port, certfile, keyfile, tun_ip, log_packet_size=False):
         logging.info(f"Connection from {addr}")
         try:
             ssl_sock = context.wrap_socket(client_sock, server_side=True)
-            handle_tunnel(tun_fd, ssl_sock, log_packet_size)
+            handle_tunnel(tun_fd, ssl_sock, log_packet_size, buffered, timeout, low_latency_dscp)
         except Exception:
             logging.exception(f"Connection error from {addr}")
         finally:
             client_sock.close()
 
-def run_client(server_host, server_port, tun_ip, log_packet_size=False, expected_fingerprint=None):
+def run_client(server_host, server_port, tun_ip, log_packet_size=False, expected_fingerprint=None, buffered=False, timeout=0.1, low_latency_dscp=None):
     """
     Runs the tunnel in client mode.
     
@@ -158,6 +176,9 @@ def run_client(server_host, server_port, tun_ip, log_packet_size=False, expected
         tun_ip (str): IP/CIDR for the TUN interface.
         log_packet_size (bool): Whether to log every packet size.
         expected_fingerprint (str): Expected SHA256 fingerprint of the server certificate.
+        buffered (bool): Enable packet buffering.
+        timeout (float): Buffer flush timeout in seconds.
+        low_latency_dscp (set): Set of ToS/TC bytes that trigger immediate flush.
     """
     tun_fd = create_tun()
     if tun_fd is None: return
@@ -191,11 +212,11 @@ def run_client(server_host, server_port, tun_ip, log_packet_size=False, expected
             logging.info("Certificate fingerprint verified.")
 
         logging.info("Connected.")
-        handle_tunnel(tun_fd, ssl_sock, log_packet_size)
+        handle_tunnel(tun_fd, ssl_sock, log_packet_size, buffered, timeout, low_latency_dscp)
     except Exception:
         logging.exception(f"Connection failed to {server_host}:{server_port}")
 
-def handle_tunnel(tun_fd, ssl_sock, log_packet_size=False):
+def handle_tunnel(tun_fd, ssl_sock, log_packet_size=False, buffered=False, timeout=0.1, low_latency_dscp=None):
     """
     Handles the bidirectional traffic between the TUN device and the SSL socket.
     
@@ -203,39 +224,102 @@ def handle_tunnel(tun_fd, ssl_sock, log_packet_size=False):
         tun_fd (int): File descriptor of the TUN device.
         ssl_sock (ssl.SSLSocket): The established SSL socket.
         log_packet_size (bool): Whether to log every packet size.
+        buffered (bool): Enable packet buffering for TUN -> SSL.
+        timeout (float): Buffer flush timeout in seconds.
+        low_latency_dscp (set): Set of ToS/TC bytes that trigger immediate flush.
     """
     ssl_sock.setblocking(0)
     
+    # Buffering state
+    pkt_buffer = []
+    buffer_bytes = 0
+    last_flush = time.time()
+    MAX_BUF = 1450 # Typical TCP segment size limit for efficiency
+
+    def flush_buffer():
+        nonlocal pkt_buffer, buffer_bytes, last_flush
+        if not pkt_buffer:
+            return
+        
+        data = b''
+        bunch_info = []
+        for p in pkt_buffer:
+            data += struct.pack('!H', len(p)) + p
+            if log_packet_size:
+                bunch_info.append(f"{len(p)}[{get_packet_info(p)}]")
+        
+        if log_packet_size:
+            logging.info(f"TUN -> SSL [BUNCH]: {len(pkt_buffer)} pkts, total {buffer_bytes} bytes. Details: {', '.join(bunch_info)}")
+            
+        ssl_sock.sendall(data)
+        pkt_buffer = []
+        buffer_bytes = 0
+        last_flush = time.time()
+    
     while True:
-        r, w, x = select.select([tun_fd, ssl_sock], [], [])
+        sel_timeout = None
+        if buffered and pkt_buffer:
+            now = time.time()
+            sel_timeout = max(0, timeout - (now - last_flush))
+            
+        r, w, x = select.select([tun_fd, ssl_sock], [], [], sel_timeout)
+        
+        # Flush if timeout or buffer large enough
+        if buffered and pkt_buffer:
+            if not r or buffer_bytes >= MAX_BUF:
+                flush_buffer()
         
         if tun_fd in r:
             packet = os.read(tun_fd, 2048)
             if not packet: break
-            if log_packet_size:
-                logging.info(f"TUN -> SSL: {len(packet)} bytes [{get_packet_info(packet)}]")
-            # Send length-prefixed packet over SSL
-            # Header is 2 bytes (unsigned short, big-endian)
-            ssl_sock.sendall(struct.pack('!H', len(packet)) + packet)
+            
+            if buffered:
+                pkt_buffer.append(packet)
+                buffer_bytes += len(packet)
+                if buffer_bytes >= MAX_BUF or is_low_latency(packet, low_latency_dscp):
+                    flush_buffer()
+            else:
+                if log_packet_size:
+                    logging.info(f"TUN -> SSL: {len(packet)} bytes [{get_packet_info(packet)}]")
+                # Send length-prefixed packet over SSL
+                ssl_sock.sendall(struct.pack('!H', len(packet)) + packet)
             
         if ssl_sock in r:
             try:
-                # Read length prefix (2 bytes)
-                header = ssl_sock.recv(2)
-                if not header: break
-                length = struct.unpack('!H', header)[0]
+                # We might receive multiple packets in the socket buffer
+                # Read at least one, and potentially more if they are already there
+                while True:
+                    # Read length prefix (2 bytes)
+                    # Note: recv(2) might return < 2 if the pipe is broken or EOF, 
+                    # but for SSL it might return wanting data.
+                    try:
+                        header = ssl_sock.recv(2)
+                    except ssl.SSLWantReadError:
+                        break # Go back to select
+                        
+                    if not header: break # EOF
+                    length = struct.unpack('!H', header)[0]
+                    
+                    # Read packet data
+                    packet = b''
+                    while len(packet) < length:
+                        chunk = ssl_sock.recv(length - len(packet))
+                        if not chunk: break
+                        packet += chunk
+                    
+                    if packet:
+                        if log_packet_size:
+                            logging.info(f"SSL -> TUN: {len(packet)} bytes [{get_packet_info(packet)}]")
+                        os.write(tun_fd, packet)
+                    
+                    # check if more data is IMMEDIATELY available to avoid extra select
+                    # (Simplified: just rely on the read loop for one chunk and select for rest if SSL)
+                    # standard behavior for select + ssl is to read all you can until SSLWantReadError
+                    pass 
                 
-                # Read packet data
-                packet = b''
-                while len(packet) < length:
-                    chunk = ssl_sock.recv(length - len(packet))
-                    if not chunk: break
-                    packet += chunk
-                
-                if packet:
-                    if log_packet_size:
-                        logging.info(f"SSL -> TUN: {len(packet)} bytes [{get_packet_info(packet)}]")
-                    os.write(tun_fd, packet)
+                if not header and not packet: # Check if we reached EOF in the loop above
+                     break
+
             except ssl.SSLWantReadError:
                 continue
             except Exception:
