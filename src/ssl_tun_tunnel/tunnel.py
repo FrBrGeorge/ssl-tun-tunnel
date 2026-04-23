@@ -288,23 +288,26 @@ def handle_tunnel(tun_fd, ssl_sock, log_packet_size=False, buffered=False, timeo
             try:
                 # We might receive multiple packets in the socket buffer
                 # Read at least one, and potentially more if they are already there
+                should_break = False
                 while True:
-                    # Read length prefix (2 bytes)
-                    # Note: recv(2) might return < 2 if the pipe is broken or EOF, 
-                    # but for SSL it might return wanting data.
                     try:
                         header = ssl_sock.recv(2)
                     except ssl.SSLWantReadError:
                         break # Go back to select
                         
-                    if not header: break # EOF
+                    if not header:
+                        should_break = True
+                        break # EOF
+                    
                     length = struct.unpack('!H', header)[0]
                     
                     # Read packet data
                     packet = b''
                     while len(packet) < length:
                         chunk = ssl_sock.recv(length - len(packet))
-                        if not chunk: break
+                        if not chunk:
+                            should_break = True
+                            break
                         packet += chunk
                     
                     if packet:
@@ -312,12 +315,10 @@ def handle_tunnel(tun_fd, ssl_sock, log_packet_size=False, buffered=False, timeo
                             logging.info(f"SSL -> TUN: {len(packet)} bytes [{get_packet_info(packet)}]")
                         os.write(tun_fd, packet)
                     
-                    # check if more data is IMMEDIATELY available to avoid extra select
-                    # (Simplified: just rely on the read loop for one chunk and select for rest if SSL)
-                    # standard behavior for select + ssl is to read all you can until SSLWantReadError
-                    pass 
+                    if should_break:
+                        break
                 
-                if not header and not packet: # Check if we reached EOF in the loop above
+                if should_break:
                      break
 
             except ssl.SSLWantReadError:
