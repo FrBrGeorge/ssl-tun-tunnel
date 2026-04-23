@@ -119,7 +119,7 @@ def is_low_latency(packet, dscp_set):
         return tc in dscp_set
     return False
 
-def run_server(port, certfile, keyfile, tun_ip, log_packet_size=False, buffered=False, timeout=0.1, low_latency_dscp=None):
+def run_server(port, certfile, keyfile, tun_ip, log_packet_size=None, buffered=False, timeout=1.0, low_latency_dscp=None):
     """
     Runs the tunnel in server mode.
     
@@ -128,7 +128,7 @@ def run_server(port, certfile, keyfile, tun_ip, log_packet_size=False, buffered=
         certfile (str): Path to the certificate file (or PEM containing both).
         keyfile (str): Path to the private key file (optional if certfile is a combined PEM).
         tun_ip (str): IP/CIDR for the TUN interface.
-        log_packet_size (bool): Whether to log every packet size.
+        log_packet_size (str): Granular packet logging ('in', 'out', 'both').
         buffered (bool): Enable packet buffering.
         timeout (float): Buffer flush timeout in seconds.
         low_latency_dscp (set): Set of ToS/TC bytes that trigger immediate flush.
@@ -166,7 +166,7 @@ def run_server(port, certfile, keyfile, tun_ip, log_packet_size=False, buffered=
         finally:
             client_sock.close()
 
-def run_client(server_host, server_port, tun_ip, log_packet_size=False, expected_fingerprint=None, buffered=False, timeout=0.1, low_latency_dscp=None):
+def run_client(server_host, server_port, tun_ip, log_packet_size=None, expected_fingerprint=None, buffered=False, timeout=1.0, low_latency_dscp=None):
     """
     Runs the tunnel in client mode.
     
@@ -174,7 +174,7 @@ def run_client(server_host, server_port, tun_ip, log_packet_size=False, expected
         server_host (str): The server hostname or IP.
         server_port (int): The server port.
         tun_ip (str): IP/CIDR for the TUN interface.
-        log_packet_size (bool): Whether to log every packet size.
+        log_packet_size (str): Granular packet logging ('in', 'out', 'both').
         expected_fingerprint (str): Expected SHA256 fingerprint of the server certificate.
         buffered (bool): Enable packet buffering.
         timeout (float): Buffer flush timeout in seconds.
@@ -216,14 +216,14 @@ def run_client(server_host, server_port, tun_ip, log_packet_size=False, expected
     except Exception:
         logging.exception(f"Connection failed to {server_host}:{server_port}")
 
-def handle_tunnel(tun_fd, ssl_sock, log_packet_size=False, buffered=False, timeout=0.1, low_latency_dscp=None):
+def handle_tunnel(tun_fd, ssl_sock, log_packet_size=None, buffered=False, timeout=1.0, low_latency_dscp=None):
     """
     Handles the bidirectional traffic between the TUN device and the SSL socket.
     
     Args:
         tun_fd (int): File descriptor of the TUN device.
         ssl_sock (ssl.SSLSocket): The established SSL socket.
-        log_packet_size (bool): Whether to log every packet size.
+        log_packet_size (str): Granular packet logging ('in', 'out', 'both').
         buffered (bool): Enable packet buffering for TUN -> SSL.
         timeout (float): Buffer flush timeout in seconds.
         low_latency_dscp (set): Set of ToS/TC bytes that trigger immediate flush.
@@ -236,6 +236,9 @@ def handle_tunnel(tun_fd, ssl_sock, log_packet_size=False, buffered=False, timeo
     last_flush = time.time()
     MAX_BUF = 1450 # Typical TCP segment size limit for efficiency
 
+    log_in = log_packet_size in ('in', 'both')
+    log_out = log_packet_size in ('out', 'both')
+
     def flush_buffer():
         nonlocal pkt_buffer, buffer_bytes, last_flush
         if not pkt_buffer:
@@ -245,10 +248,10 @@ def handle_tunnel(tun_fd, ssl_sock, log_packet_size=False, buffered=False, timeo
         bunch_info = []
         for p in pkt_buffer:
             data += struct.pack('!H', len(p)) + p
-            if log_packet_size:
+            if log_out:
                 bunch_info.append(f"{len(p)}[{get_packet_info(p)}]")
         
-        if log_packet_size:
+        if log_out:
             logging.info(f"TUN -> SSL [BUNCH]: {len(pkt_buffer)} pkts, total {buffer_bytes} bytes. Details: {', '.join(bunch_info)}")
             
         ssl_sock.sendall(data)
@@ -279,7 +282,7 @@ def handle_tunnel(tun_fd, ssl_sock, log_packet_size=False, buffered=False, timeo
                 if buffer_bytes >= MAX_BUF or is_low_latency(packet, low_latency_dscp):
                     flush_buffer()
             else:
-                if log_packet_size:
+                if log_out:
                     logging.info(f"TUN -> SSL: {len(packet)} bytes [{get_packet_info(packet)}]")
                 # Send length-prefixed packet over SSL
                 ssl_sock.sendall(struct.pack('!H', len(packet)) + packet)
@@ -311,7 +314,7 @@ def handle_tunnel(tun_fd, ssl_sock, log_packet_size=False, buffered=False, timeo
                         packet += chunk
                     
                     if packet:
-                        if log_packet_size:
+                        if log_in:
                             logging.info(f"SSL -> TUN: {len(packet)} bytes [{get_packet_info(packet)}]")
                         os.write(tun_fd, packet)
                     

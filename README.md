@@ -31,20 +31,49 @@ This will install the `ssl-tun-tunnel` command-line tool.
 
 ### Command Line
 
+The `ssl-tun-tunnel` tool now uses positional arguments for addresses and supports TOML configuration files.
+
 **1. Generate a self-signed certificate:**
 ```bash
-ssl-tun-tunnel --generate-pem server.pem
+ssl-tun-tunnel -g server.pem
 ```
 
 **2. Start the Server:**
 ```bash
-sudo ssl-tun-tunnel --mode server --port 1443 --tun-ip 192.168.255.1/24 --cert server.pem
+# Listen on port 1443
+sudo ssl-tun-tunnel 1443 -m server -i 192.168.255.1/24
 ```
 
 **3. Start the Client:**
 ```bash
-sudo ssl-tun-tunnel --mode client --host <SERVER_IP> --port 1443 --tun-ip 192.168.255.2/24
+# Connect to SERVER_IP:1443. Client mode is the default.
+sudo ssl-tun-tunnel <SERVER_IP>:1443 -i 192.168.255.2/24
 ```
+
+**4. Using a configuration file:**
+```bash
+sudo ssl-tun-tunnel -c config.toml
+```
+
+## Configuration
+
+You can use a TOML file to manage settings. An example `config.toml.example` is included in the package.
+
+```toml
+mode = "client"
+address = "localhost:1443"
+tun_ip = "192.168.255.2/24"
+buffered = true
+timeout = 1.0
+log_packet_size = "out"
+```
+
+## Advanced Options
+
+- **Granular Logging**: `--log-packet-size=in/out/both/none` (Default: `none`).
+- **Buffering**: `-b` to enable, `-t` to set timeout (Default: `1.0s`).
+- **Priority Flush**: `--low-latency-dscp` (Default: `0x48,0xb8`) flushes buffer immediately on matching IP headers.
+- **Fingerprint Verification**: `--fingerprint <SHA256>` protects against MITM.
 
 ## Testing
 

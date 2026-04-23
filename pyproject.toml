@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ssl-tun-tunnel"
-version = "0.2.0"
+version = "0.3.0"
 authors = [
   { name="SSL TUN Tunnel Team", email="frbrgeorge@gmail.com" },
 ]
@@ -16,11 +16,14 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: POSIX :: Linux",
 ]
-dependencies = []
+dependencies = ["toml"]
 
 [project.urls]
 "Homepage" = "https://github.com/FrBrGeorge/ssl-tun-tunnel"
 "Bug Tracker" = "https://github.com/FrBrGeorge/ssl-tun-tunnel/issues"
+
+[tool.setuptools.package-data]
+"ssl_tun_tunnel" = ["*.toml.example"]
 
 [project.scripts]
 ssl-tun-tunnel = "ssl_tun_tunnel.__main__:main"

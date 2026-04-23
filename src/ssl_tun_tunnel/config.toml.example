@@ -1,0 +1,46 @@
+# SSL TUN Tunnel Configuration Example
+
+# Mode of operation: "server" or "client"
+# Default: "client"
+mode = "client"
+
+# Address to connect to or listen on
+# For server: "port" (e.g. "1443")
+# For client: "host:port" (e.g. "localhost:1443")
+address = "localhost:1443"
+
+# IP/CIDR for tun0 interface
+# Required
+tun_ip = "192.168.255.1/24"
+
+# Path to the .pem certificate file
+# Default: "server.pem"
+cert = "server.pem"
+
+# Path to the private key file (optional if combined in .pem)
+# key = "server.key"
+
+# Enable packet buffering
+# Default: false
+buffered = true
+
+# Buffer flush timeout in seconds
+# Default: 1.0 (Increased from 0.1)
+timeout = 1.0
+
+# Comma-separated ToS/TC values that trigger immediate flush
+# Default: "0x48,0xb8"
+low_latency_dscp = "0x48,0xb8"
+
+# Direction of packet size logging: "in", "out", "both", or "none" (disabled)
+# Default: "none"
+log_packet_size = "none"
+
+# Path to a log file
+# log_file = "tunnel.log"
+
+# Increase output verbosity
+# verbose = true
+
+# Expected SHA256 fingerprint of the server certificate (client mode only)
+# fingerprint = "AA:BB:CC..."
