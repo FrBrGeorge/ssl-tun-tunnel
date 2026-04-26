@@ -26,7 +26,13 @@ buffered = true
 
 # Buffer flush timeout in seconds
 # Default: 1.0
-timeout = 1.0
+flush_timeout = 1.0
+
+# Idle timeout in seconds to close unused connection
+# idle_timeout = 300.0
+
+# Wait time before reconnecting on error in seconds. If 0, exit on error.
+# reconnect_timeout = 5.0
 
 # Random fill mode for flushed batches: "all", "throughput", or "none"
 # Default: "none"
@@ -35,10 +41,6 @@ fill = "none"
 # Comma-separated ToS/TC values that trigger immediate flush
 # Default: "0x48,0xb8"
 low_latency_dscp = "0x48,0xb8"
-
-# Direction of packet size logging: "in", "out", "both", or "none" (disabled)
-# Default: "none"
-log_packet_size = "none"
 
 # Path to a log file
 # log_file = "tunnel.log"

@@ -75,8 +75,11 @@ log_packet_size = "none"
 
 ## Advanced Options
 
-- **Granular Logging**: `--log-packet-size=in/out/both/none` (Default: `none`).
-- **Buffering**: `-b` to enable, `-t` to set timeout (Default: `1.0s`).
+- **Verbosity**: `-v` to increase logging levels for console and file. `-v console_level,file_level` to specify levels (e.g., `-v WARNING,INFO`).
+- **Buffering**: `-b` to enable.
+- **Flush Timeout**: `--flush-timeout <seconds>` (Default: `1.0s`) sets the maximum delay for buffered packets.
+- **Idle Timeout**: `--idle-timeout <seconds>` closes the connection if no traffic is detected. In client mode, it will reconnect only when new packets are seen on `tun0`.
+- **Reconnect Timeout**: `--reconnect-timeout <seconds>` (Default: `0s`) specifies how long to wait before attempting to reconnect after a connection error or close. If set to `0`, the client will exit on error.
 - **Priority Flush**: `--low-latency-dscp` (Default: `0x48,0xb8`) flushes buffer immediately on matching IP headers.
 - **Random Fill**: `--fill=all/throughput/none` to pad batches with random noise to obfuscate traffic patterns.
 - **Fingerprint Verification**: `-f` / `--fingerprint <SHA256>` in client mode protects against MITM. 
