@@ -3,6 +3,10 @@ from unittest.mock import MagicMock, patch
 import struct
 import io
 import os
+import sys
+
+# Ensure local src is in path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
 # Import functions to test
 from ssl_tun_tunnel.tunnel import handle_tunnel
@@ -88,18 +92,20 @@ class TestTunnelLogic(unittest.TestCase):
         packet = b'B' * 1000
         
         with patch('os.read', side_effect=[packet, b'']):
-            with patch('select.select', side_effect=[([mock_tun_fd], [], []), ([mock_tun_fd], [], []), ([], [], [])]):
+            with patch('select.select', side_effect=[([mock_tun_fd], [], []), ([], [], [])]):
                 with patch('os.urandom', return_value=b'J'*446) as mock_urandom:
-                    try:
-                        handle_tunnel(mock_tun_fd, mock_ssl_sock, buffered=True, fill='all')
-                    except Exception:
-                        pass
+                    # Mock time to trigger timeout flush
+                    with patch('time.time', side_effect=[100.0, 100.1, 100.2, 110.0, 110.1]):
+                        try:
+                            # Use small flush_timeout
+                            handle_tunnel(mock_tun_fd, mock_ssl_sock, buffered=True, fill='all', flush_timeout=1.0)
+                        except Exception:
+                            pass
         
         # Check if os.urandom was called with correct size
         mock_urandom.assert_called_with(446)
         
         # Check if sendall was called with both data and junk
-        # batch = H(1000)+pkt + H(446|0x8000)+junk
         JUNK_BIT = 0x8000
         expected_batch = struct.pack('!H', 1000) + packet + struct.pack('!H', 446 | JUNK_BIT) + b'J'*446
         mock_ssl_sock.sendall.assert_any_call(expected_batch)
@@ -109,25 +115,26 @@ class TestTunnelLogic(unittest.TestCase):
         mock_tun_fd = 10
         mock_ssl_sock = MagicMock()
         
-        # Mock os.read to return two small packets then EOF
-        # Mock select.select to return tun_fd twice
-        with patch('os.read', side_effect=[b'P1', b'P2', b'']):
+        # Mock os.read to return two small packets
+        with patch('os.read', side_effect=[b'P1', b'P2']):
             with patch('select.select', side_effect=[
                 ([mock_tun_fd], [], []), # read P1
                 ([mock_tun_fd], [], []), # read P2
-                ([mock_tun_fd], [], []), # EOF
-                ([], [], [])             # end
+                ([], [], []),             # timeout -> trigger flush
+                ([mock_tun_fd], [], []), # EOF or something to break
             ]):
-                # Use a small flush_timeout or force flush by buffer size (not easy here as threshold is 1450)
-                # But we can check if it eventually calls sendall if we wait for timeout or if we mock time.time
-                with patch('time.time', side_effect=[100.0, 100.1, 100.2, 100.3, 105.0]):
-                    try:
-                        handle_tunnel(mock_tun_fd, mock_ssl_sock, buffered=True, flush_timeout=1.0)
-                    except Exception:
-                        pass
+                # Mock time.time to simulate timeout passage
+                # 324, 325, 363, 378, 363, 378, 363, 378, 358, 363, 378
+                times = [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 110.0, 110.0, 110.0, 110.0, 110.0, 110.0]
+                with patch('time.time', side_effect=times):
+                    # Mock os.read to return b'' on the last call to break loop
+                    with patch('os.read', side_effect=[b'P1', b'P2', b'']):
+                        try:
+                            handle_tunnel(mock_tun_fd, mock_ssl_sock, buffered=True, flush_timeout=1.0)
+                        except Exception:
+                            pass
         
         # Check if sendall was called. It should bundle P1 and P2.
-        # Format: [H(len_p1) + p1] + [H(len_p2) + p2]
         expected_batch = struct.pack('!H', 2) + b'P1' + struct.pack('!H', 2) + b'P2'
         mock_ssl_sock.sendall.assert_any_call(expected_batch)
 
