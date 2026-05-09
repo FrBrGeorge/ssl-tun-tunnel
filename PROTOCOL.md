@@ -6,16 +6,11 @@ This document describes the application-layer protocol used by `ssl-tun-tunnel` 
 
 Each unit of data (packet or junk) sent over the SSL socket is prefixed with a **2-byte Big-Endian Length Header**.
 
-```text
- 0                   1
- 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|J|           Length            |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                               |
-/            Payload            /
-|                               |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```mermaid
+packet-beta
+0: "J (Junk Bit)"
+1-15: "Length"
+16-63: "Payload"
 ```
 
 ### Fields:
@@ -48,21 +43,6 @@ If a fill mode is active (`all` or `throughput`), the system calculates the rema
 - **`all`**: Every batch is padded with a junk frame to reach the threshold.
 - **`throughput`**: Only batches triggered by size or timeout are padded. Priority flushes (low-latency) are sent without padding to avoid adding extra transmission time.
 
-## 4. Connection Lifecycle
-
-```mermaid
-stateDiagram-v2
-    [*] --> Idle
-    Idle --> Connecting: Packet detected on TUN (Client)
-    Idle --> Listening: Startup (Server)
-    Connecting --> Handshake: TCP Established
-    Listening --> Handshake: Client Joined
-    Handshake --> Tunneling: SSL/TLS Established
-    Tunneling --> Tunneling: Forwarding Traffic
-    Tunneling --> Closing: Idle Timeout / Error
-    Closing --> Idle: cleanup
-```
-
-### Timeouts
+## 4. Timeouts
 - **Idle Timeout**: If no data is read or written for `idle_timeout` seconds, the connection is closed.
 - **Reconnect Timeout (Client)**: After a disconnect or error, the client waits `reconnect_timeout` seconds before attempting to reach the server again. If the disconnect was caused by an idle timeout, the client stays idle until new traffic is seen on the local TUN interface.
