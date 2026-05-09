@@ -147,7 +147,7 @@ class TestTunnelLogic(unittest.TestCase):
                     # Mock os.read to return b'' on the last call to break loop
                     with patch('os.read', side_effect=[b'P1', b'P2', b'']):
                         try:
-                            handle_tunnel(mock_tun_fd, mock_ssl_sock, buffered=True, flush_timeout=1.0)
+                            handle_tunnel(mock_tun_fd, mock_ssl_sock, buffered=True, flush_timeout=1.0, fill='none')
                         except Exception:
                             pass
         

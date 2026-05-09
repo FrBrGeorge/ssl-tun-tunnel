@@ -25,4 +25,4 @@ jobs:
         pip install .
     - name: Run tests
       run: |
-        python tests/test_tunnel.py
+        python -m unittest discover tests
