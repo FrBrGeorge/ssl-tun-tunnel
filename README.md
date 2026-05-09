@@ -75,7 +75,9 @@ log_packet_size = "none"
 
 ## Advanced Options
 
-- **Verbosity**: `-v` to increase logging levels for console and file. `-v console_level,file_level` to specify levels (e.g., `-v WARNING,INFO`).
+- **Verbosity**: `-v` to increase logging levels for console and file. Supports multiple flags (e.g., `-vv`, `-vvv`) or explicit naming: `-v console_level,file_level` (e.g., `-v INFO,DEBUG`).
+  - Available levels: `CRITICAL`, `ERROR`, `WARNING`, `INFO`, `DEBUG`.
+  - Default: `ERROR` (console), `WARNING` (file).
 - **Buffering**: Enabled by default. Use `--no-buffering` to disable.
 - **Flush Timeout**: `--flush-timeout <seconds>` (Default: `1.0s`) sets the maximum delay for buffered packets.
 - **Idle Timeout**: `--idle-timeout <seconds>` closes the connection if no traffic is detected. In client mode, it will reconnect only when new packets are seen on `tun0`.

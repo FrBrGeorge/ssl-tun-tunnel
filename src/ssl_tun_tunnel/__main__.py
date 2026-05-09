@@ -7,6 +7,9 @@ from typing import Any
 from .tunnel import run_server, run_client, generate_pem, get_cert_fingerprint
 
 
+LEVELS_ORDERED = ["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]
+
+
 def parse_address(address_port: str | None, default_address: str | None, default_port: int) -> tuple[str | None, int]:
     """
     Parses an address string into a tuple of (host, port).
@@ -45,40 +48,41 @@ def setup_logging(verbose_args: list[Any] | None, log_file: str | None) -> None:
         log_file (str): Path to a log file.
     """
     mapping = logging.getLevelNamesMapping()
-    levels_ordered = ["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]
 
-    # Default levels: ERROR, WARNING
+    # Default levels: ERROR (console), WARNING (file)
     c_idx, f_idx = 1, 2
+    count = 0
+    explicit_levels = None
 
     if verbose_args:
-        explicit_levels = None
-        count = 0
         for arg in verbose_args:
             if isinstance(arg, str):
-                explicit_levels = arg
-                break
+                # Check for -vv / -vvv style where 'v's are captured as the optional argument
+                if all(c.lower() == 'v' for c in arg):
+                    count += 1 + len(arg)
+                else:
+                    explicit_levels = arg
+                    break
             elif arg is True:
                 count += 1
 
-        if explicit_levels:
-            try:
-                c_lvl_name, f_lvl_name = explicit_levels.split(',', 1)
-                c_lvl_name, f_lvl_name = c_lvl_name.upper().strip(), f_lvl_name.upper().strip()
-                if c_lvl_name not in mapping or f_lvl_name not in mapping:
-                    raise ValueError("Invalid level name")
-                console_level = mapping[c_lvl_name]
-                file_level = mapping[f_lvl_name]
-            except (ValueError, IndexError):
-                print(f"Error: Invalid logging levels: {explicit_levels}. Must be two valid level names separated by comma.")
-                sys.exit(1)
-        else:
-            c_idx = min(len(levels_ordered) - 1, c_idx + count)
-            f_idx = min(len(levels_ordered) - 1, f_idx + count)
-            console_level = mapping[levels_ordered[c_idx]]
-            file_level = mapping[levels_ordered[f_idx]]
+    if explicit_levels:
+        try:
+            c_lvl_name, f_lvl_name = explicit_levels.split(',', 1)
+            c_lvl_name, f_lvl_name = c_lvl_name.upper().strip(), f_lvl_name.upper().strip()
+            if c_lvl_name not in mapping or f_lvl_name not in mapping:
+                raise ValueError("Invalid level name")
+            console_level = mapping[c_lvl_name]
+            file_level = mapping[f_lvl_name]
+        except (ValueError, IndexError):
+            print(f"Error: Invalid logging levels: {explicit_levels}. Must be two valid level names separated by comma.")
+            print(f"Available levels: {', '.join(LEVELS_ORDERED)}")
+            sys.exit(1)
     else:
-        console_level = mapping[levels_ordered[c_idx]]
-        file_level = mapping[levels_ordered[f_idx]]
+        c_idx = min(len(LEVELS_ORDERED) - 1, c_idx + count)
+        f_idx = min(len(LEVELS_ORDERED) - 1, f_idx + count)
+        console_level = mapping[LEVELS_ORDERED[c_idx]]
+        file_level = mapping[LEVELS_ORDERED[f_idx]]
 
     # Configure logging
     logger = logging.getLogger()
@@ -133,7 +137,8 @@ def main() -> None:
     parser.add_argument('-g', '--generate', type=str, help='Generate a self-signed .pem file and exit')
     parser.add_argument('-l', '--log-file', type=str, help='Path to a log file')
     parser.add_argument('-v', '--verbose', action='append', nargs='?', const=True, 
-                        help='Increase output verbosity. Optional argument: console_level,file_level')
+                        help=f'Increase output verbosity. Use multiple times (e.g. -vv) or specify levels directly '
+                             f'(e.g. -v INFO,DEBUG). Available levels: {", ".join(LEVELS_ORDERED)}')
     parser.add_argument('-b', '--buffered', action='store_true', default=True, help='Enable packet buffering (on by default)')
     parser.add_argument('--no-buffering', action='store_false', dest='buffered', help='Disable packet buffering')
     parser.add_argument('--flush-timeout', type=float, default=1.0, help='Buffer flush timeout in seconds')

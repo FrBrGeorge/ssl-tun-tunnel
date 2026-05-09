@@ -107,10 +107,48 @@ class TestUtils(unittest.TestCase):
         self.assertIn('req', args)
         self.assertIn('test.pem', args)
 
+    def test_setup_logging_comprehensive(self):
+        # Default: Console=ERROR (1), File=WARNING (2)
+        # -v -> Console=WARNING (2), File=INFO (3)
+        # -vv -> Console=INFO (3), File=DEBUG (4)
+        
+        with patch('logging.getLogger') as mock_get_logger:
+            mock_logger = MagicMock()
+            mock_get_logger.return_value = mock_logger
+            
+            # Simple -v
+            setup_logging([True], None)
+            # Verify console handler level is WARNING (30)
+            args, _ = mock_logger.addHandler.call_args_list[0]
+            self.assertEqual(args[0].level, logging.WARNING)
+            mock_logger.addHandler.reset_mock()
+
+            # -vv
+            setup_logging(['v'], None)
+            args, _ = mock_logger.addHandler.call_args_list[0]
+            self.assertEqual(args[0].level, logging.INFO)
+            mock_logger.addHandler.reset_mock()
+
+            # -vvv
+            setup_logging(['vv'], None)
+            args, _ = mock_logger.addHandler.call_args_list[0]
+            self.assertEqual(args[0].level, logging.DEBUG)
+            mock_logger.addHandler.reset_mock()
+
+            # Combination -v -v
+            setup_logging([True, True], None)
+            args, _ = mock_logger.addHandler.call_args_list[0]
+            self.assertEqual(args[0].level, logging.INFO)
+            mock_logger.addHandler.reset_mock()
+
+            # Explicit
+            setup_logging(["DEBUG,CRITICAL"], None)
+            args, _ = mock_logger.addHandler.call_args_list[0]
+            self.assertEqual(args[0].level, logging.DEBUG)
+            mock_logger.addHandler.reset_mock()
+
     def test_setup_logging_basic(self):
-        # Just ensure it doesn't crash
-        setup_logging([True], None) # -v
-        setup_logging(["DEBUG,INFO"], None) # -v DEBUG,INFO
+        # Existing simple checks
         setup_logging(None, None)
 
 if __name__ == '__main__':
