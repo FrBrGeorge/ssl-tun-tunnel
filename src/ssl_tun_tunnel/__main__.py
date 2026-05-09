@@ -89,8 +89,7 @@ def setup_logging(verbose_args: list[Any] | None, log_file: str | None) -> None:
     logger.setLevel(logging.DEBUG)
 
     # Clear existing handlers
-    for handler in logger.handlers[:]:
-        logger.removeHandler(handler)
+    logger.handlers.clear()
 
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(console_level)

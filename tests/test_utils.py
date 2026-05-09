@@ -114,38 +114,42 @@ class TestUtils(unittest.TestCase):
         
         with patch('logging.getLogger') as mock_get_logger:
             mock_logger = MagicMock()
-            mock_logger.handlers = []
+            # Real list for handlers so .clear() and iteration works correctly
+            handlers_list = []
+            mock_logger.handlers = handlers_list
             mock_get_logger.return_value = mock_logger
             
             # Simple -v
             setup_logging([True], None)
-            # Verify console handler level is WARNING (30)
-            args, _ = mock_logger.addHandler.call_args_list[0]
-            self.assertEqual(args[0].level, logging.WARNING)
+            # Verify console handler was added (logger.addHandler called)
+            self.assertTrue(mock_logger.addHandler.called)
+            # Check the level of the handler passed to addHandler
+            handler_added = mock_logger.addHandler.call_args[0][0]
+            self.assertEqual(handler_added.level, logging.WARNING)
             mock_logger.addHandler.reset_mock()
 
-            # -vv
+            # -vv (passed as 'v' string by argparse when using append+optional arg)
             setup_logging(['v'], None)
-            args, _ = mock_logger.addHandler.call_args_list[0]
-            self.assertEqual(args[0].level, logging.INFO)
+            handler_added = mock_logger.addHandler.call_args[0][0]
+            self.assertEqual(handler_added.level, logging.INFO)
             mock_logger.addHandler.reset_mock()
 
             # -vvv
             setup_logging(['vv'], None)
-            args, _ = mock_logger.addHandler.call_args_list[0]
-            self.assertEqual(args[0].level, logging.DEBUG)
+            handler_added = mock_logger.addHandler.call_args[0][0]
+            self.assertEqual(handler_added.level, logging.DEBUG)
             mock_logger.addHandler.reset_mock()
 
             # Combination -v -v
             setup_logging([True, True], None)
-            args, _ = mock_logger.addHandler.call_args_list[0]
-            self.assertEqual(args[0].level, logging.INFO)
+            handler_added = mock_logger.addHandler.call_args[0][0]
+            self.assertEqual(handler_added.level, logging.INFO)
             mock_logger.addHandler.reset_mock()
 
             # Explicit
             setup_logging(["DEBUG,CRITICAL"], None)
-            args, _ = mock_logger.addHandler.call_args_list[0]
-            self.assertEqual(args[0].level, logging.DEBUG)
+            handler_added = mock_logger.addHandler.call_args[0][0]
+            self.assertEqual(handler_added.level, logging.DEBUG)
             mock_logger.addHandler.reset_mock()
 
     def test_setup_logging_basic(self):
