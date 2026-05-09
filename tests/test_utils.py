@@ -5,8 +5,15 @@ import os
 import struct
 from pathlib import Path
 
-# Ensure local src is in path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+# Ensure local src is in path BEFORE anything else
+LIB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../src'))
+if LIB_PATH not in sys.path:
+    sys.path.insert(0, LIB_PATH)
+
+# Purge modules to force reload from local src
+for mod in list(sys.modules.keys()):
+    if mod.startswith('ssl_tun_tunnel'):
+        del sys.modules[mod]
 
 from unittest.mock import MagicMock, patch
 

@@ -109,17 +109,22 @@ def get_cert_fingerprint(certfile: str | Path, encoding: str = 'z85') -> str | N
 def verify_fingerprint(actual_der: bytes, expected_str: str) -> tuple[bool, str]:
     actual_raw = hashlib.sha256(actual_der).digest()
     
-    # Try z85 decode first, then hex
+    # Try z85 decode
     try:
         expected_raw = base64.z85decode(expected_str)
+        if len(expected_raw) == 32 and actual_raw == expected_raw:
+            return True, "Success (Z85)"
     except Exception:
-        try:
-            expected_raw = bytes.fromhex(expected_str.replace(':', ''))
-        except Exception:
-            return False, "Invalid fingerprint format"
-            
-    if actual_raw == expected_raw:
-        return True, ""
+        pass
+
+    # Try hex
+    try:
+        clean_hex = expected_str.replace(':', '').replace('-', '').replace(' ', '')
+        expected_raw = bytes.fromhex(clean_hex)
+        if len(expected_raw) == 32 and actual_raw == expected_raw:
+            return True, "Success (HEX)"
+    except Exception:
+        pass
         
     actual_z85 = base64.z85encode(actual_raw).decode('ascii')
     actual_hex = ":".join(f"{b:02X}" for b in actual_raw)

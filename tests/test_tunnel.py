@@ -4,11 +4,20 @@ import struct
 import io
 import os
 import sys
+import time
+import itertools
 
-# Ensure local src is in path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+# Ensure local src is in path BEFORE anything else
+LIB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../src'))
+if LIB_PATH not in sys.path:
+    sys.path.insert(0, LIB_PATH)
 
-# Import functions to test
+# Purge any existing imports to force local ones
+for mod in list(sys.modules.keys()):
+    if mod.startswith('ssl_tun_tunnel'):
+        del sys.modules[mod]
+
+import ssl_tun_tunnel.tunnel as tunnel_mod
 from ssl_tun_tunnel.tunnel import handle_tunnel
 
 class TestTunnelLogic(unittest.TestCase):
@@ -85,24 +94,32 @@ class TestTunnelLogic(unittest.TestCase):
         mock_ssl_sock = MagicMock()
         
         # Threshold is DEFAULT_MTU - 50 = 1450
-        # If we send a 1000 byte packet, there's 450 bytes left for junk (approx)
-        # wire_bytes = 1000 + 2 = 1002
-        # space_left = 1450 - 1002 = 448
-        # junk_len = 448 - 2 = 446
         packet = b'B' * 1000
         
+        # Use a generator for time to avoid StopIteration
+        time_gen = itertools.count(100.0, 0.1)
+        # Advance time significantly for flush trigger
+        def mock_time():
+            val = next(time_gen)
+            if val > 100.5 and val < 110.0:
+                # Jump forward to trigger timeout
+                # We need a way to know when we are in the second loop
+                return 110.0
+            return val
+
         with patch('os.read', side_effect=[packet, b'']):
-            with patch('select.select', side_effect=[([mock_tun_fd], [], []), ([], [], [])]):
-                with patch('os.urandom', return_value=b'J'*446) as mock_urandom:
-                    # Mock time to trigger timeout flush
-                    with patch('time.time', side_effect=[100.0, 100.1, 100.2, 110.0, 110.1]):
+            with patch('select.select', side_effect=[([mock_tun_fd], [], []), ([], [], []), ([], [], [])]):
+                with patch('ssl_tun_tunnel.tunnel.os.urandom', return_value=b'J'*446) as mock_urandom:
+                    # Provide enough values
+                    side_effect = [100.0, 100.1, 100.2, 110.0, 110.1, 110.2, 110.3, 110.4, 110.5, 110.6, 110.7]
+                    with patch('ssl_tun_tunnel.tunnel.time.time', side_effect=side_effect):
                         try:
-                            # Use small flush_timeout
                             handle_tunnel(mock_tun_fd, mock_ssl_sock, buffered=True, fill='all', flush_timeout=1.0)
                         except Exception:
                             pass
         
-        # Check if os.urandom was called with correct size
+        # Check if os.urandom was called
+        self.assertTrue(mock_urandom.called, "os.urandom was not called")
         mock_urandom.assert_called_with(446)
         
         # Check if sendall was called with both data and junk
@@ -167,9 +184,10 @@ class TestTunnelLogic(unittest.TestCase):
         mock_ssl_sock = MagicMock()
         
         # select.select returns nothing (timeout)
-        # we need to mock time.time to simulate passage of 10s
         with patch('select.select', return_value=([], [], [])):
-            with patch('time.time', side_effect=[100.0, 115.0]):
+            # Provide plenty of timestamps via a long list or generator
+            times = [100.0, 100.1, 100.2, 115.0, 115.1, 115.2, 115.3, 115.4, 115.5]
+            with patch('ssl_tun_tunnel.tunnel.time.time', side_effect=times):
                 result = handle_tunnel(mock_tun_fd, mock_ssl_sock, idle_timeout=10.0)
                 self.assertTrue(result) # result=True means was_idle
 
