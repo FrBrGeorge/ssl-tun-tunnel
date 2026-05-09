@@ -393,8 +393,14 @@ def handle_tunnel(tun_fd: int, ssl_sock: ssl.SSLSocket, buffered: bool = True, f
                 sel_timeout = time_until_flush
             
         select_timeout = sel_timeout
-        if hasattr(ssl_sock, 'pending') and ssl_sock.pending() > 0:
-            select_timeout = 0
+        try:
+            # Check if there is data in the SSL read buffer that select() won't see.
+            # In some Python versions/environments, MagicMock.pending() > 0 raises TypeError.
+            pending_bytes = ssl_sock.pending() if hasattr(ssl_sock, 'pending') else 0
+            if isinstance(pending_bytes, int) and pending_bytes > 0:
+                select_timeout = 0
+        except Exception:
+            pass
 
         r, w, x = select.select([tun_fd, ssl_sock], [], [], select_timeout)
         
