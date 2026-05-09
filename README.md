@@ -87,6 +87,24 @@ log_packet_size = "none"
 - **Fingerprint Verification**: `-f` / `--fingerprint <SHA256>` in client mode protects against MITM. 
 - **Fingerprint Reporting**: In server mode, run `ssl-tun-tunnel -m server -f` to display the active certificate's fingerprints (Z85 and HEX) and exit.
 
+## Clients
+
+### Linux Client
+Standard Python client for Linux machines. Requires root privileges for TUN management.
+
+### Android Client (Non-Root)
+A native Android application (located in the `android/` directory) that uses the `VpnService` API to provide a non-root tunnel. It supports:
+- **Buffering & Priority Flush**: Configurable timeouts.
+- **Random Fill**: Obfuscation modes.
+- **Fingerprint Verification**: HEX-based verification.
+
+Building the Android client:
+The project includes a GitHub Action to automatically build the `.apk`. You can also build it locally using Gradle:
+```bash
+cd android
+./gradlew assembleDebug
+```
+
 ## Testing
 
 Run the Python unit tests:
