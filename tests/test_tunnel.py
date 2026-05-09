@@ -33,6 +33,8 @@ class TestTunnelLogic(unittest.TestCase):
         """Test that packets are correctly length-prefixed when sent."""
         mock_tun_fd = self.mock_tun_fd
         mock_ssl_sock = self.mock_ssl_sock
+        # Mock send to return number of bytes sent
+        mock_ssl_sock.send.side_effect = lambda data: len(data)
         
         # Mock os.read to return a small packet then empty to break loop
         with patch('os.read', side_effect=[b'HELLO', b'']):
@@ -43,9 +45,30 @@ class TestTunnelLogic(unittest.TestCase):
                 except Exception:
                     pass
         
-        # Check if sendall was called with length-prefixed packet
+        # Check if send was called (via robust_sendall) with length-prefixed packet
         expected_call = struct.pack('!H', 5) + b'HELLO'
-        mock_ssl_sock.sendall.assert_any_call(expected_call)
+        # robust_sendall might call send multiple times if it returned partial, 
+        # but here it calls it with the whole thing.
+        mock_ssl_sock.send.assert_any_call(expected_call)
+
+    def test_robust_sendall_retries(self):
+        """Test that robust_sendall handles SSLWantWriteError and retries."""
+        mock_ssl_sock = self.mock_ssl_sock
+        data = b'RETRY_DATA'
+        
+        # First call: SSLWantWriteError, Second call: sends 5 bytes, Third call: sends rest
+        mock_ssl_sock.send.side_effect = [
+            ssl.SSLWantWriteError(),
+            5,
+            5
+        ]
+        
+        with patch('select.select') as mock_select:
+            tunnel_mod.robust_sendall(mock_ssl_sock, data)
+            
+            # Should have called select once for the retry
+            mock_select.assert_called_with([], [mock_ssl_sock], [], 0.5)
+            self.assertEqual(mock_ssl_sock.send.call_count, 3)
 
     def test_packet_framing_receive(self):
         """Test that length-prefixed packets are correctly read and written to TUN."""
@@ -97,6 +120,7 @@ class TestTunnelLogic(unittest.TestCase):
         """Test that random fill adds junk packets to flushed batches."""
         mock_tun_fd = self.mock_tun_fd
         mock_ssl_sock = self.mock_ssl_sock
+        mock_ssl_sock.send.side_effect = lambda data: len(data)
         
         # Threshold is DEFAULT_MTU - 50 = 1450
         packet = b'B' * 1000
@@ -117,15 +141,16 @@ class TestTunnelLogic(unittest.TestCase):
         self.assertTrue(mock_urandom.called, "os.urandom was not called")
         mock_urandom.assert_called_with(446)
         
-        # Check if sendall was called with both data and junk
+        # Check if send was called with both data and junk
         JUNK_BIT = 0x8000
         expected_batch = struct.pack('!H', 1000) + packet + struct.pack('!H', 446 | JUNK_BIT) + b'J'*446
-        mock_ssl_sock.sendall.assert_any_call(expected_batch)
+        mock_ssl_sock.send.assert_any_call(expected_batch)
 
     def test_buffering_logic(self):
         """Test that packets are buffered and flushed reasonably."""
         mock_tun_fd = self.mock_tun_fd
         mock_ssl_sock = self.mock_ssl_sock
+        mock_ssl_sock.send.side_effect = lambda data: len(data)
         
         # Provide even more timestamps
         times = [100.0] * 40 + [110.0] * 40
@@ -144,14 +169,15 @@ class TestTunnelLogic(unittest.TestCase):
                     except Exception:
                         pass
         
-        # Check if sendall was called. It should bundle P1 and P2.
+        # Check if send was called. It should bundle P1 and P2.
         expected_batch = struct.pack('!H', 2) + b'P1' + struct.pack('!H', 2) + b'P2'
-        mock_ssl_sock.sendall.assert_any_call(expected_batch)
+        mock_ssl_sock.send.assert_any_call(expected_batch)
 
     def test_low_latency_flush(self):
         """Test that low-latency packets trigger immediate flush even when buffered."""
         mock_tun_fd = self.mock_tun_fd
         mock_ssl_sock = self.mock_ssl_sock
+        mock_ssl_sock.send.side_effect = lambda data: len(data)
         
         # IPv4, ICMP (1), ToS 0x48 (LL)
         ll_packet = struct.pack('!BBH HH BB H 4s 4s', 
@@ -172,7 +198,7 @@ class TestTunnelLogic(unittest.TestCase):
                         pass
         
         expected_batch = struct.pack('!H', len(ll_packet)) + ll_packet
-        mock_ssl_sock.sendall.assert_any_call(expected_batch)
+        mock_ssl_sock.send.assert_any_call(expected_batch)
 
     def test_idle_timeout(self):
         """Test that idle timeout closes the connection."""
@@ -191,6 +217,7 @@ class TestTunnelLogic(unittest.TestCase):
         """Test that a packet exactly at MTU limit is handled correctly."""
         mock_tun_fd = self.mock_tun_fd
         mock_ssl_sock = self.mock_ssl_sock
+        mock_ssl_sock.send.side_effect = lambda data: len(data)
         mtu_packet = b'M' * 1500
         
         with patch('os.read', side_effect=[mtu_packet, b'']):
@@ -201,12 +228,13 @@ class TestTunnelLogic(unittest.TestCase):
                     pass
         
         expected_call = struct.pack('!H', 1500) + mtu_packet
-        mock_ssl_sock.sendall.assert_any_call(expected_call)
+        mock_ssl_sock.send.assert_any_call(expected_call)
 
     def test_ipv6_low_latency_flush(self):
         """Test that IPv6 Traffic Class (ToS equivalent) triggers immediate flush."""
         mock_tun_fd = self.mock_tun_fd
         mock_ssl_sock = self.mock_ssl_sock
+        mock_ssl_sock.send.side_effect = lambda data: len(data)
         
         # IPv6 header: Version=6, TC=0xB8, FlowLabel=0, PayloadLength=0, NextHeader=59 (No Next), HopLimit=64
         # TC 0xB8: First 4 bits in packet[0], next 4 bits in packet[1]. 
@@ -225,7 +253,7 @@ class TestTunnelLogic(unittest.TestCase):
                         pass
         
         expected_batch = struct.pack('!H', len(ipv6_ll_packet)) + ipv6_ll_packet
-        mock_ssl_sock.sendall.assert_any_call(expected_batch)
+        mock_ssl_sock.send.assert_any_call(expected_batch)
 
     def test_multiple_packets_in_single_ssl_recv(self):
         """Test that receiving multiple packets in a single SSL recv() works correctly."""
@@ -261,6 +289,7 @@ class TestTunnelLogic(unittest.TestCase):
         """Test that the buffer flushes automatically when reaching the MSS threshold."""
         mock_tun_fd = self.mock_tun_fd
         mock_ssl_sock = self.mock_ssl_sock
+        mock_ssl_sock.send.side_effect = lambda data: len(data)
         
         # Threshold is MTU - 50 = 1450
         # Packet 1: 1000 bytes
@@ -279,7 +308,7 @@ class TestTunnelLogic(unittest.TestCase):
         
         # Should have captured Packet 1 and Packet 2 together
         expected_batch = struct.pack('!H', 1000) + p1 + struct.pack('!H', 500) + p2
-        mock_ssl_sock.sendall.assert_any_call(expected_batch)
+        mock_ssl_sock.send.assert_any_call(expected_batch)
 
 if __name__ == '__main__':
     unittest.main()
