@@ -6,6 +6,7 @@ import os
 import sys
 import time
 import itertools
+import ssl
 
 # Ensure local src is in path BEFORE anything else
 LIB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../src'))
