@@ -341,6 +341,7 @@ def handle_tunnel(tun_fd: int, ssl_sock: ssl.SSLSocket, buffered: bool = True, f
     buffer_bytes = 0
     last_flush = time.time()
     last_activity = time.time()
+    ssl_recv_buffer = b''
     
     JUNK_BIT = 0x8000
 
@@ -391,7 +392,14 @@ def handle_tunnel(tun_fd: int, ssl_sock: ssl.SSLSocket, buffered: bool = True, f
             if sel_timeout is None or time_until_flush < sel_timeout:
                 sel_timeout = time_until_flush
             
-        r, w, x = select.select([tun_fd, ssl_sock], [], [], sel_timeout)
+        select_timeout = sel_timeout
+        if hasattr(ssl_sock, 'pending') and ssl_sock.pending() > 0:
+            select_timeout = 0
+
+        r, w, x = select.select([tun_fd, ssl_sock], [], [], select_timeout)
+        
+        # If there's pending data in SSL buffer, select might not trigger.
+        # However, we'll drain the socket whenever it is ready.
         
         now = time.time()
         
@@ -431,52 +439,48 @@ def handle_tunnel(tun_fd: int, ssl_sock: ssl.SSLSocket, buffered: bool = True, f
                     logging.exception("Error sending over SSL")
                     return False
             
-        if ssl_sock in r:
+        if ssl_sock in r or (hasattr(ssl_sock, 'pending') and ssl_sock.pending() > 0):
             last_activity = now
             try:
-                # We might receive multiple packets in the socket buffer
-                should_break = False
+                # 1. Drain all available data from SSL socket into our persistent buffer
                 while True:
                     try:
-                        header = ssl_sock.recv(2)
+                        chunk = ssl_sock.recv(8192)
+                        if not chunk:
+                            logging.info("SSL connection closed by peer (EOF)")
+                            return False
+                        ssl_recv_buffer += chunk
                     except ssl.SSLWantReadError:
-                        break # Go back to select
-                        
-                    if not header:
-                        should_break = True
-                        break # EOF
-                    
+                        break
+                    except Exception:
+                        logging.exception("Error receiving from SSL")
+                        return False
+                
+                # 2. Process all complete frames in the buffer
+                while len(ssl_recv_buffer) >= 2:
+                    header = ssl_recv_buffer[:2]
                     val = struct.unpack('!H', header)[0]
                     is_junk = bool(val & JUNK_BIT)
                     length = val & ~JUNK_BIT
                     
-                    # Read packet data
-                    packet = b''
-                    while len(packet) < length:
-                        chunk = ssl_sock.recv(length - len(packet))
-                        if not chunk:
-                            should_break = True
-                            break
-                        packet += chunk
+                    if len(ssl_recv_buffer) < 2 + length:
+                        # Incomplete packet, wait for more data
+                        break
                     
-                    if packet and not is_junk:
+                    packet = ssl_recv_buffer[2:2+length]
+                    # Advance buffer
+                    ssl_recv_buffer = ssl_recv_buffer[2+length:]
+                    
+                    if not is_junk:
                         logging.debug(f"SSL -> TUN: {len(packet)} bytes [{get_packet_info(packet)}]")
                         try:
                             os.write(tun_fd, packet)
                         except Exception:
                             logging.exception("Error writing to TUN interface")
                             return False
-                    elif packet and is_junk:
+                    else:
                         logging.debug(f"SSL -> TUN: {len(packet)} bytes [JUNK - dropped]")
-                    
-                    if should_break:
-                        break
-                
-                if should_break:
-                    return False
 
-            except ssl.SSLWantReadError:
-                continue
             except Exception:
                 logging.exception("Tunnel error during socket processing")
                 return False
