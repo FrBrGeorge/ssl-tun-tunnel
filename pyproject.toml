@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ssl-tun-tunnel"
-version = "0.3.0"
+version = "0.4.0"
 authors = [
   { name="SSL TUN Tunnel Team", email="frbrgeorge@gmail.com" },
 ]
