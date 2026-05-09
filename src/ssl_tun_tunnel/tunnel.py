@@ -168,8 +168,31 @@ def is_low_latency(packet: bytes, dscp_set: set[int]) -> bool:
     return False
 
 
+def robust_sendall(ssl_sock: ssl.SSLSocket, data: bytes) -> None:
+    """
+    Sends data over an SSL socket, handling SSLWantWriteError and SSLWantReadError.
+    This is necessary because sendall() on a non-blocking SSL socket may throw 
+    these exceptions if the SSL state machine requires more data or buffer space.
+    """
+    view = memoryview(data)
+    total_sent = 0
+    while total_sent < len(data):
+        try:
+            sent = ssl_sock.send(view[total_sent:])
+            total_sent += sent
+        except (ssl.SSLWantWriteError, ssl.SSLWantReadError) as e:
+            # Wait for the socket to be ready
+            if isinstance(e, ssl.SSLWantWriteError):
+                select.select([], [ssl_sock], [], 0.5)
+            else:
+                select.select([ssl_sock], [], [], 0.5)
+            continue
+        except Exception:
+            raise
+
+
 def run_server(host: str, port: int, certfile: str | Path, keyfile: str | Path | None, 
-               tun_ip: str | None, buffered: bool = True, flush_timeout: float = 1.0, 
+               tun_ip: str | None, buffered: bool = True, flush_timeout: float = 0.3, 
                low_latency_dscp: set[int] | None = None, fill: str = 'throughput', 
                idle_timeout: float | None = None, reconnect_timeout: float = 60.0) -> None:
     """
@@ -231,7 +254,7 @@ def run_server(host: str, port: int, certfile: str | Path, keyfile: str | Path |
 
 def run_client(server_host: str, server_port: int, tun_ip: str | None, 
                expected_fingerprint: str | None = None, buffered: bool = True, 
-               flush_timeout: float = 1.0, low_latency_dscp: set[int] | None = None, 
+               flush_timeout: float = 0.3, low_latency_dscp: set[int] | None = None, 
                fill: str = 'throughput', idle_timeout: float | None = None, 
                reconnect_timeout: float = 60.0) -> None:
     """
@@ -316,7 +339,7 @@ def run_client(server_host: str, server_port: int, tun_ip: str | None,
                 continue
 
 
-def handle_tunnel(tun_fd: int, ssl_sock: ssl.SSLSocket, buffered: bool = True, flush_timeout: float = 1.0, 
+def handle_tunnel(tun_fd: int, ssl_sock: ssl.SSLSocket, buffered: bool = True, flush_timeout: float = 0.3, 
                   low_latency_dscp: set[int] | None = None, fill: str = 'throughput', 
                   idle_timeout: float | None = None) -> bool:
     """
@@ -371,7 +394,12 @@ def handle_tunnel(tun_fd: int, ssl_sock: ssl.SSLSocket, buffered: bool = True, f
         logging.debug(f"TUN -> SSL [BUNCH]: {len(pkt_buffer)} pkts, total {len(data)} bytes on wire. "
                       f"Details: {', '.join(bunch_info)}")
             
-        ssl_sock.sendall(data)
+        try:
+            robust_sendall(ssl_sock, data)
+        except Exception:
+            logging.exception("Error sending buffered data over SSL")
+            return False
+
         pkt_buffer = []
         buffer_bytes = 0
         now = time.time()
@@ -440,7 +468,7 @@ def handle_tunnel(tun_fd: int, ssl_sock: ssl.SSLSocket, buffered: bool = True, f
                 logging.debug(f"TUN -> SSL: {len(packet)} bytes [{get_packet_info(packet)}]")
                 # Send length-prefixed packet over SSL
                 try:
-                    ssl_sock.sendall(struct.pack('!H', len(packet)) + packet)
+                    robust_sendall(ssl_sock, struct.pack('!H', len(packet)) + packet)
                 except Exception:
                     logging.exception("Error sending over SSL")
                     return False

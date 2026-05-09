@@ -66,14 +66,28 @@ class VpnTunnelService : VpnService() {
 
         broadcastLog(1, "Starting VPN service...")
         tunnelThread = Thread {
-            try {
-                runTunnel(host, port, tunIp, fingerprint, buffered, flushTimeout, fillMode, verbosity)
-            } catch (e: Exception) {
-                Log.e("SslTun", "Tunnel error", e)
-                broadcastLog(0, "Tunnel error: ${e.message}")
-            } finally {
-                stopVpn()
+            var retryCount = 0
+            while (isRunning.get()) {
+                try {
+                    runTunnel(host, port, tunIp, fingerprint, buffered, flushTimeout, fillMode, verbosity)
+                    // If runTunnel returns normally while isRunning is true, it means it finished its loop (maybe EOF)
+                } catch (e: Exception) {
+                    Log.e("SslTun", "Tunnel error", e)
+                    broadcastLog(0, "Tunnel error: ${e.message}")
+                }
+                
+                if (!isRunning.get()) break
+                
+                retryCount++
+                val sleepTime = minOf(30000L, 1000L * retryCount)
+                broadcastLog(1, "Reconnecting in ${sleepTime/1000}s... (Attempt $retryCount)")
+                try {
+                    Thread.sleep(sleepTime)
+                } catch (ie: InterruptedException) {
+                    break
+                }
             }
+            stopVpn()
         }.apply { start() }
     }
 
@@ -118,6 +132,7 @@ class VpnTunnelService : VpnService() {
         }
 
         // 2. Setup VPN Interface
+        vpnInterface?.close()
         val ipParts = tunIp.split("/")
         val ip = ipParts[0]
         val prefix = if (ipParts.size > 1) ipParts[1].toInt() else 24
@@ -174,9 +189,8 @@ class VpnTunnelService : VpnService() {
         // Transmitter Loop (TUN -> SSL)
         val buf = ByteArray(2048)
         broadcastLog(2, "TX Loop started")
-        while (isRunning.get()) {
-            try {
-                // Blocking read is fine in its own loop
+        try {
+            while (isRunning.get()) {
                 val read = tunIn.read(buf)
                 if (read > 0) {
                     val packet = buf.copyOfRange(0, read)
@@ -185,20 +199,21 @@ class VpnTunnelService : VpnService() {
                 } else if (read == -1) {
                     break
                 }
-            } catch (e: Exception) {
-                if (isRunning.get()) {
-                    Log.e("SslTun", "TX error", e)
-                    broadcastLog(1, "TX error: ${e.message}")
-                }
-                break
             }
+        } catch (e: Exception) {
+            if (isRunning.get()) {
+                Log.e("SslTun", "TX error", e)
+                broadcastLog(1, "TX error: ${e.message}")
+            }
+        } finally {
+            rxThread.join(200)
+            timerThread.interrupt()
+            try { 
+                sslSocket.close() 
+                socket.close()
+            } catch (e: Exception) {}
+            broadcastLog(1, "Tunnel session ended")
         }
-        
-        isRunning.set(false)
-        rxThread.join(500)
-        timerThread.interrupt()
-        sslSocket.close()
-        broadcastLog(1, "Tunnel closed")
     }
 
     override fun onDestroy() {

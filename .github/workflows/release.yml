@@ -27,6 +27,28 @@ jobs:
     - name: Build wheel and sdist
       run: |
         python -m build
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: 'gradle'
+    - name: Grant execute permission for gradlew
+      run: chmod +x android/gradlew
+    - name: Build Android Release
+      run: |
+        cd android
+        ./gradlew assembleRelease
+    - name: Prepare APK for Release
+      run: |
+        TAG_NAME=${GITHUB_REF#refs/tags/}
+        APK_SRC=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
+        if [ -f "$APK_SRC" ]; then
+          cp "$APK_SRC" "dist/ssl-tun-tunnel-${TAG_NAME}.apk"
+          echo "APK prepared: dist/ssl-tun-tunnel-${TAG_NAME}.apk"
+        else
+          echo "Warning: APK not found"
+        fi
     - name: Create Release
       id: create_release
       uses: softprops/action-gh-release@v2
