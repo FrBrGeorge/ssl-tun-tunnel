@@ -14,10 +14,11 @@ class ProtocolEngine(
     private val flushTimeoutMs: Long,
     private val fillMode: String,
     private val expectedFingerprint: String?,
+    private val verbosity: Int = 1,
     private val lowLatencyDscp: Set<Int> = setOf(0x48, 0xb8)
 ) {
-    private val inputStream = sslSocket.inputStream
-    private val outputStream = sslSocket.outputStream
+    private val inputStream: InputStream = sslSocket.inputStream
+    private val outputStream: OutputStream = sslSocket.outputStream
     private val secureRandom = SecureRandom()
     private val JUNK_BIT = 0x8000
     private val TCP_MSS_FLUSH_THRESHOLD = 1450
@@ -41,23 +42,33 @@ class ProtocolEngine(
             val hexFingerprint = digest.joinToString("") { "%02X".format(it) }
             val cleanExpected = expectedFingerprint.replace(":", "").replace("-", "").replace(" ", "").uppercase()
             
-            // Basic HEX check. Z85 is harder in standard Java/Android without libs, 
-            // so we'll stick to HEX for now or implement Z85 if needed.
-            // But common fingerprints are HEX.
-            
             if (hexFingerprint == cleanExpected) {
-                Log.i("SslTun", "Fingerprint verified (HEX)")
+                log(1, "Fingerprint verified (HEX)")
                 return true
             }
             
-            Log.e("SslTun", "Fingerprint mismatch! Expected: $cleanExpected, Actual: $hexFingerprint")
+            // Try Z85 if expected is long enough
+            if (cleanExpected.length == 40) {
+                try {
+                    val expectedRaw = Z85.decode(expectedFingerprint)
+                    if (expectedRaw.contentEquals(digest)) {
+                        log(1, "Fingerprint verified (Z85)")
+                        return true
+                    }
+                } catch (e: Exception) {
+                    log(2, "Z85 decode failed: ${e.message}")
+                }
+            }
+            
+            log(0, "Fingerprint mismatch! Actual HEX: $hexFingerprint")
             return false
         } catch (e: Exception) {
-            Log.e("SslTun", "Error verifying fingerprint", e)
+            log(0, "Error verifying fingerprint: ${e.message}")
             return false
         }
     }
 
+    @Synchronized
     fun sendPacket(packet: ByteArray) {
         if (!buffered) {
             writeFrame(packet, false)
@@ -73,16 +84,21 @@ class ProtocolEngine(
         }
     }
 
+    @Synchronized
     fun checkTimeout() {
         if (buffered && pktBuffer.isNotEmpty()) {
             if (System.currentTimeMillis() - lastFlushTime >= flushTimeoutMs) {
+                log(2, "Flush timeout triggered")
                 flushBuffer(false)
             }
         }
     }
 
+    @Synchronized
     private fun flushBuffer(isLowLatencyTriggered: Boolean) {
         if (pktBuffer.isEmpty()) return
+
+        log(2, "Flushing buffer: ${pktBuffer.size} packets, $bufferBytes bytes")
 
         for (p in pktBuffer) {
             writeFrame(p, false, flush = false)
@@ -98,6 +114,7 @@ class ProtocolEngine(
                 val junkData = ByteArray(junkLen)
                 secureRandom.nextBytes(junkData)
                 writeFrame(junkData, true, flush = false)
+                log(3, "Added $junkLen bytes of junk")
             }
         }
 
@@ -117,6 +134,11 @@ class ProtocolEngine(
         outputStream.write(header)
         outputStream.write(data)
         if (flush) outputStream.flush()
+        
+        if (verbosity >= 3) {
+            val type = if (isJunk) "JUNK" else "DATA"
+            log(3, "Sent frame: $type, size=${data.size}")
+        }
     }
 
     fun receiveFrame(): Pair<ByteArray?, Boolean> {
@@ -126,6 +148,12 @@ class ProtocolEngine(
         val length = valHeader and JUNK_BIT.inv()
         
         val payload = readExactly(length) ?: return null to false
+        
+        if (verbosity >= 3) {
+            val type = if (isJunk) "JUNK" else "DATA"
+            log(3, "Received frame: $type, size=$length")
+        }
+        
         return payload to isJunk
     }
 
@@ -133,9 +161,14 @@ class ProtocolEngine(
         val buffer = ByteArray(size)
         var offset = 0
         while (offset < size) {
-            val read = inputStream.read(buffer, offset, size - offset)
-            if (read == -1) return null
-            offset += read
+            try {
+                val read = inputStream.read(buffer, offset, size - offset)
+                if (read == -1) return null
+                offset += read
+            } catch (e: Exception) {
+                log(1, "Read error: ${e.message}")
+                return null
+            }
         }
         return buffer
     }
@@ -153,6 +186,46 @@ class ProtocolEngine(
                 lowLatencyDscp.contains(tc)
             }
             else -> false
+        }
+    }
+
+    private fun log(level: Int, msg: String) {
+        if (verbosity >= level) {
+            Log.d("SslTun", msg)
+            VpnTunnelService.broadcastLog(level, msg)
+        }
+    }
+
+    object Z85 {
+        private val decoderTable = IntArray(256) { -1 }
+        private const val encoderString = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?&<>()[]{}@%$#"
+
+        init {
+            for (i in encoderString.indices) {
+                decoderTable[encoderString[i].toInt()] = i
+            }
+        }
+
+        fun decode(input: String): ByteArray {
+            val cleanInput = input.trim()
+            if (cleanInput.length % 5 != 0) throw IllegalArgumentException("Z85 length must be multiple of 5")
+            val length = cleanInput.length / 5 * 4
+            val result = ByteArray(length)
+            var byteIdx = 0
+            var charIdx = 0
+            while (charIdx < cleanInput.length) {
+                var value = 0L
+                for (i in 0..4) {
+                    val c = cleanInput[charIdx++].toInt()
+                    if (c >= 256 || decoderTable[c] == -1) throw IllegalArgumentException("Invalid Z85 char")
+                    value = value * 85 + decoderTable[c]
+                }
+                for (i in 0..3) {
+                    result[byteIdx + 3 - i] = (value shr (i * 8)).toByte()
+                }
+                byteIdx += 4
+            }
+            return result
         }
     }
 }

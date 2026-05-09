@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="verbosity_levels">
+        <item>0 - Errors only</item>
+        <item>1 - Info &amp; Status</item>
+        <item>2 - Detailed Activity</item>
+        <item>3 - Frame details</item>
+        <item>4 - Packet details</item>
+    </string-array>
+</resources>

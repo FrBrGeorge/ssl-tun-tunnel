@@ -1,112 +1,182 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:orientation="vertical"
     android:padding="16dp">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Server Host" />
+            <EditText
+                android:id="@+id/editHost"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="e.g. 1.2.3.4"
+                android:text="127.0.0.1" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Server Port" />
+            <EditText
+                android:id="@+id/editPort"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="number"
+                android:text="443" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="TUN IP (Internal)" />
+            <EditText
+                android:id="@+id/editTunIp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="10.0.1.2/24" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Server Fingerprint (Z85/HEX)" />
+            <EditText
+                android:id="@+id/editFingerprint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="AA:BB:CC..." />
+
+            <CheckBox
+                android:id="@+id/checkBuffered"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Enable Buffering"
+                android:checked="true" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Flush Timeout (ms)" />
+            <EditText
+                android:id="@+id/editFlushTimeout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="number"
+                android:text="1000" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Random Fill Mode" />
+            <RadioGroup
+                android:id="@+id/groupFill"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+                <RadioButton
+                    android:id="@+id/radioFillNone"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="None" />
+                <RadioButton
+                    android:id="@+id/radioFillThroughput"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Throughput"
+                    android:checked="true" />
+                <RadioButton
+                    android:id="@+id/radioFillAll"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="All" />
+            </RadioGroup>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Verbosity Level" />
+            <Spinner
+                android:id="@+id/spinnerVerbosity"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:entries="@array/verbosity_levels" />
+
+            <Button
+                android:id="@+id/btnStart"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Connect"
+                android:layout_marginTop="16dp" />
+
+            <Button
+                android:id="@+id/btnStop"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Disconnect" />
+
+        </LinearLayout>
+    </ScrollView>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@android:color/darker_gray"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Logs"
+        android:textStyle="bold" />
+
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="150dp">
+        <ScrollView
+            android:id="@+id/logScroll"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:background="#F0F0F0">
+            <TextView
+                android:id="@+id/txtLogs"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:padding="4dp"
+                android:textIsSelectable="true"
+                android:textSize="12sp" />
+        </ScrollView>
+    </HorizontalScrollView>
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Server Host" />
-        <EditText
-            android:id="@+id/editHost"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="e.g. 1.2.3.4"
-            android:text="127.0.0.1" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Server Port" />
-        <EditText
-            android:id="@+id/editPort"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:inputType="number"
-            android:text="443" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="TUN IP (Internal)" />
-        <EditText
-            android:id="@+id/editTunIp"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="10.0.1.2/24" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Server Fingerprint (Optional HEX)" />
-        <EditText
-            android:id="@+id/editFingerprint"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="AA:BB:CC..." />
-
-        <CheckBox
-            android:id="@+id/checkBuffered"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Enable Buffering"
-            android:checked="true" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Flush Timeout (ms)" />
-        <EditText
-            android:id="@+id/editFlushTimeout"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:inputType="number"
-            android:text="1000" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Random Fill Mode" />
-        <RadioGroup
-            android:id="@+id/groupFill"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content">
-            <RadioButton
-                android:id="@+id/radioFillNone"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="None" />
-            <RadioButton
-                android:id="@+id/radioFillThroughput"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Throughput (Default)"
-                android:checked="true" />
-            <RadioButton
-                android:id="@+id/radioFillAll"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="All" />
-        </RadioGroup>
-
+        android:orientation="horizontal">
         <Button
-            android:id="@+id/btnStart"
-            android:layout_width="match_parent"
+            android:id="@+id/btnClearLogs"
+            style="?android:attr/buttonStyleSmall"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:text="Connect"
-            android:layout_marginTop="16dp" />
-
+            android:layout_weight="1"
+            android:text="Clear" />
         <Button
-            android:id="@+id/btnStop"
-            android:layout_width="match_parent"
+            android:id="@+id/btnCopyLogs"
+            style="?android:attr/buttonStyleSmall"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:text="Disconnect" />
-
+            android:layout_weight="1"
+            android:text="Copy" />
     </LinearLayout>
-</ScrollView>
+
+</LinearLayout>

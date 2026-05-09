@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.Socket
@@ -19,6 +20,26 @@ class VpnTunnelService : VpnService() {
     private val isRunning = AtomicBoolean(false)
     private var tunnelThread: Thread? = null
 
+    companion object {
+        const val LOG_EVENT = "com.example.ssltuntunnel.LOG_EVENT"
+        private var instance: VpnTunnelService? = null
+
+        fun broadcastLog(level: Int, message: String) {
+            instance?.let {
+                val intent = Intent(LOG_EVENT).apply {
+                    putExtra("LEVEL", level)
+                    putExtra("MESSAGE", message)
+                }
+                LocalBroadcastManager.getInstance(it).sendBroadcast(intent)
+            }
+        }
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == "STOP") {
             stopVpn()
@@ -27,26 +48,29 @@ class VpnTunnelService : VpnService() {
 
         val serverHost = intent?.getStringExtra("HOST") ?: ""
         val serverPort = intent?.getIntExtra("PORT", 443) ?: 443
-        val tunIp = intent?.getStringExtra("TUN_IP") ?: "10.0.0.2"
+        val tunIp = intent?.getStringExtra("TUN_IP") ?: "10.0.0.2/24"
         val fingerprint = intent?.getStringExtra("FINGERPRINT")
         val buffered = intent?.getBooleanExtra("BUFFERED", true) ?: true
         val flushTimeout = intent?.getLongExtra("FLUSH_TIMEOUT", 1000L) ?: 1000L
         val fillMode = intent?.getStringExtra("FILL_MODE") ?: "throughput"
+        val verbosity = intent?.getIntExtra("VERBOSITY", 1) ?: 1
 
-        startVpn(serverHost, serverPort, tunIp, fingerprint, buffered, flushTimeout, fillMode)
+        startVpn(serverHost, serverPort, tunIp, fingerprint, buffered, flushTimeout, fillMode, verbosity)
         return START_STICKY
     }
 
     private fun startVpn(host: String, port: Int, tunIp: String, fingerprint: String?, 
-                         buffered: Boolean, flushTimeout: Long, fillMode: String) {
+                         buffered: Boolean, flushTimeout: Long, fillMode: String, verbosity: Int) {
         if (isRunning.get()) return
         isRunning.set(true)
 
+        broadcastLog(1, "Starting VPN service...")
         tunnelThread = Thread {
             try {
-                runTunnel(host, port, tunIp, fingerprint, buffered, flushTimeout, fillMode)
+                runTunnel(host, port, tunIp, fingerprint, buffered, flushTimeout, fillMode, verbosity)
             } catch (e: Exception) {
                 Log.e("SslTun", "Tunnel error", e)
+                broadcastLog(0, "Tunnel error: ${e.message}")
             } finally {
                 stopVpn()
             }
@@ -54,19 +78,21 @@ class VpnTunnelService : VpnService() {
     }
 
     private fun stopVpn() {
-        isRunning.set(false)
+        if (isRunning.get()) {
+            broadcastLog(1, "Stopping VPN service...")
+            isRunning.set(false)
+        }
         vpnInterface?.close()
         vpnInterface = null
         stopSelf()
     }
 
     private fun runTunnel(host: String, port: Int, tunIp: String, fingerprint: String?,
-                          buffered: Boolean, flushTimeout: Long, fillMode: String) {
+                           buffered: Boolean, flushTimeout: Long, fillMode: String, verbosity: Int) {
         
+        broadcastLog(1, "Connecting to $host:$port...")
         // 1. Setup SSL
         val sslContext = SSLContext.getInstance("TLS")
-        // No verification by default if no fingerprint, or full bypass if verification fails
-        // In a real app, we should use a custom TrustManager that validates the fingerprint
         sslContext.init(null, arrayOf<TrustManager>(object : X509TrustManager {
             override fun checkClientTrusted(p0: Array<out X509Certificate>?, p1: String?) {}
             override fun checkServerTrusted(p0: Array<out X509Certificate>?, p1: String?) {}
@@ -74,78 +100,110 @@ class VpnTunnelService : VpnService() {
         }), null)
 
         val socket = Socket(host, port)
-        // Ensure socket is protected from the VPN itself to avoid loop
         if (!protect(socket)) {
-            Log.e("SslTun", "Could not protect socket")
+            broadcastLog(0, "Could not protect socket")
             socket.close()
             return
         }
 
         val sslSocket = sslContext.socketFactory.createSocket(socket, host, port, true) as javax.net.ssl.SSLSocket
         sslSocket.startHandshake()
+        broadcastLog(1, "SSL Handshake completed")
 
-        val engine = ProtocolEngine(sslSocket, buffered, flushTimeout, fillMode, fingerprint)
+        val engine = ProtocolEngine(sslSocket, buffered, flushTimeout, fillMode, fingerprint, verbosity)
         if (fingerprint != null && !engine.verifyFingerprint()) {
+            broadcastLog(0, "Fingerprint verification failed")
             sslSocket.close()
             return
         }
 
         // 2. Setup VPN Interface
+        val ipParts = tunIp.split("/")
+        val ip = ipParts[0]
+        val prefix = if (ipParts.size > 1) ipParts[1].toInt() else 24
+        
         val builder = Builder()
             .setMtu(1500)
-            .addAddress(tunIp.split("/")[0], 24)
+            .addAddress(ip, prefix)
             .addRoute("0.0.0.0", 0)
             .setSession("SslTunTunnel")
             
         vpnInterface = builder.establish()
+        if (vpnInterface == null) {
+            broadcastLog(0, "Failed to establish VPN interface")
+            return
+        }
+        broadcastLog(1, "VPN interface established: $tunIp")
+
         val tunIn = FileInputStream(vpnInterface?.fileDescriptor)
         val tunOut = FileOutputStream(vpnInterface?.fileDescriptor)
 
         // 3. Bidirectional loops
+        // Receiver Thread (SSL -> TUN)
         val rxThread = Thread {
             try {
+                broadcastLog(2, "RX Thread started")
                 while (isRunning.get()) {
                     val (payload, isJunk) = engine.receiveFrame()
                     if (payload == null) break
                     if (!isJunk) {
                         tunOut.write(payload)
+                        if (verbosity >= 4) broadcastLog(4, "SSL -> TUN: ${payload.size} bytes")
                     }
                 }
             } catch (e: Exception) {
-                Log.e("SslTun", "RX error", e)
-            }
-        }
-        rxThread.start()
-
-        val buf = ByteArray(2048)
-        while (isRunning.get()) {
-            // Non-blocking read or small timeout would be better, but standard Java 
-            // FileInputStream on PFD is blocking. We'll use available() or just accept blocking.
-            // For flush timeout, we need a way to pulse.
-            
-            if (tunIn.channel.position() < tunIn.channel.size() || true) {
-                try {
-                    // For non-root Android, we usually have to rely on blocking reads 
-                    // or use a Selector with DatagramChannel if we could wrap the PFD.
-                    // To keep it simple, we'll try a small read timeout if possible or just block.
-                    val read = tunIn.read(buf)
-                    if (read > 0) {
-                        val packet = buf.copyOfRange(0, read)
-                        engine.sendPacket(packet)
-                    }
-                } catch (e: Exception) {
-                    if (isRunning.get()) Log.e("SslTun", "TX error", e)
-                    break
+                if (isRunning.get()) {
+                    Log.e("SslTun", "RX error", e)
+                    broadcastLog(1, "RX error: ${e.message}")
                 }
             }
-            engine.checkTimeout()
+        }.apply { name = "SslTunRX"; start() }
+
+        // Timer Thread for flushes
+        val timerThread = Thread {
+            try {
+                while (isRunning.get()) {
+                    engine.checkTimeout()
+                    Thread.sleep(flushTimeout / 2)
+                }
+            } catch (e: Exception) {
+                // ignore
+            }
+        }.apply { name = "SslTunTimer"; start() }
+
+        // Transmitter Loop (TUN -> SSL)
+        val buf = ByteArray(2048)
+        broadcastLog(2, "TX Loop started")
+        while (isRunning.get()) {
+            try {
+                // Blocking read is fine in its own loop
+                val read = tunIn.read(buf)
+                if (read > 0) {
+                    val packet = buf.copyOfRange(0, read)
+                    engine.sendPacket(packet)
+                    if (verbosity >= 4) broadcastLog(4, "TUN -> SSL: $read bytes")
+                } else if (read == -1) {
+                    break
+                }
+            } catch (e: Exception) {
+                if (isRunning.get()) {
+                    Log.e("SslTun", "TX error", e)
+                    broadcastLog(1, "TX error: ${e.message}")
+                }
+                break
+            }
         }
-        rxThread.join(1000)
+        
+        isRunning.set(false)
+        rxThread.join(500)
+        timerThread.interrupt()
         sslSocket.close()
+        broadcastLog(1, "Tunnel closed")
     }
 
     override fun onDestroy() {
         stopVpn()
+        instance = null
         super.onDestroy()
     }
 }
