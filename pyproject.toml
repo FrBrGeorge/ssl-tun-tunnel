@@ -16,7 +16,6 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: POSIX :: Linux",
 ]
-dependencies = ["toml"]
 
 [project.urls]
 "Homepage" = "https://github.com/FrBrGeorge/ssl-tun-tunnel"

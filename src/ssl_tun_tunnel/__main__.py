@@ -1,7 +1,8 @@
 import argparse
-import sys
 import logging
-import toml
+import sys
+import tomllib
+
 from pathlib import Path
 from typing import Any
 from .tunnel import run_server, run_client, generate_pem, get_cert_fingerprint
@@ -116,7 +117,8 @@ def main() -> None:
             print(f"Error: Config file not found: {config_path}")
             sys.exit(1)
         try:
-            config = toml.load(config_path)
+            with open(config_path, "rb") as f:
+                config = tomllib.load(f)
         except Exception as e:
             print(f"Error parsing config file: {e}")
             sys.exit(1)
