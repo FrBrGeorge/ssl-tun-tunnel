@@ -114,6 +114,7 @@ class TestUtils(unittest.TestCase):
         
         with patch('logging.getLogger') as mock_get_logger:
             mock_logger = MagicMock()
+            mock_logger.handlers = []
             mock_get_logger.return_value = mock_logger
             
             # Simple -v

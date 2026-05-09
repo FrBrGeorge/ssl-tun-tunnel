@@ -25,4 +25,4 @@ jobs:
         pip install .
     - name: Run tests
       run: |
-        python -m unittest discover tests
+        python -m unittest discover -v tests
