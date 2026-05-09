@@ -31,7 +31,7 @@ class TestTunnelLogic(unittest.TestCase):
             # Mock select.select to return tun_fd in ready list once
             with patch('select.select', side_effect=[([mock_tun_fd], [], []), ([], [], [])]):
                 try:
-                    handle_tunnel(mock_tun_fd, mock_ssl_sock)
+                    handle_tunnel(mock_tun_fd, mock_ssl_sock, buffered=False)
                 except StopIteration:
                     pass
                 except Exception:
@@ -58,7 +58,7 @@ class TestTunnelLogic(unittest.TestCase):
         with patch('select.select', side_effect=[([mock_ssl_sock], [], []), ([], [], [])]):
             with patch('os.write') as mock_write:
                 try:
-                    handle_tunnel(mock_tun_fd, mock_ssl_sock)
+                    handle_tunnel(mock_tun_fd, mock_ssl_sock, buffered=False)
                 except Exception:
                     pass
                 
@@ -81,7 +81,7 @@ class TestTunnelLogic(unittest.TestCase):
         with patch('select.select', side_effect=[([mock_ssl_sock], [], []), ([], [], [])]):
             with patch('os.write') as mock_write:
                 try:
-                    handle_tunnel(mock_tun_fd, mock_ssl_sock)
+                    handle_tunnel(mock_tun_fd, mock_ssl_sock, buffered=False)
                 except Exception:
                     pass
                 

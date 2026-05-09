@@ -134,12 +134,13 @@ def main() -> None:
     parser.add_argument('-l', '--log-file', type=str, help='Path to a log file')
     parser.add_argument('-v', '--verbose', action='append', nargs='?', const=True, 
                         help='Increase output verbosity. Optional argument: console_level,file_level')
-    parser.add_argument('-b', '--buffered', action='store_true', help='Enable packet buffering')
+    parser.add_argument('-b', '--buffered', action='store_true', default=True, help='Enable packet buffering (on by default)')
+    parser.add_argument('--no-buffering', action='store_false', dest='buffered', help='Disable packet buffering')
     parser.add_argument('--flush-timeout', type=float, default=1.0, help='Buffer flush timeout in seconds')
     parser.add_argument('--idle-timeout', type=float, help='Idle timeout in seconds to close unused connection')
-    parser.add_argument('--reconnect-timeout', type=float, default=0.0, 
+    parser.add_argument('--reconnect-timeout', type=float, default=60.0, 
                         help='Wait time before reconnecting on error. If 0, exit on error.')
-    parser.add_argument('--fill', choices=['all', 'throughput', 'none'], default='none', 
+    parser.add_argument('--fill', choices=['all', 'throughput', 'none'], default='throughput', 
                         help='Random fill mode for flushed batches')
     parser.add_argument('--low-latency-dscp', type=str, default='0x48,0xb8', 
                         help='Comma-separated ToS/TC values that trigger immediate flush')

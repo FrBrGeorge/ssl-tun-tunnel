@@ -76,12 +76,12 @@ log_packet_size = "none"
 ## Advanced Options
 
 - **Verbosity**: `-v` to increase logging levels for console and file. `-v console_level,file_level` to specify levels (e.g., `-v WARNING,INFO`).
-- **Buffering**: `-b` to enable.
+- **Buffering**: Enabled by default. Use `--no-buffering` to disable.
 - **Flush Timeout**: `--flush-timeout <seconds>` (Default: `1.0s`) sets the maximum delay for buffered packets.
 - **Idle Timeout**: `--idle-timeout <seconds>` closes the connection if no traffic is detected. In client mode, it will reconnect only when new packets are seen on `tun0`.
-- **Reconnect Timeout**: `--reconnect-timeout <seconds>` (Default: `0s`) specifies how long to wait before attempting to reconnect after a connection error or close. If set to `0`, the client will exit on error.
-- **Priority Flush**: `--low-latency-dscp` (Default: `0x48,0xb8`) flushes buffer immediately on matching IP headers.
-- **Random Fill**: `--fill=all/throughput/none` to pad batches with random noise to obfuscate traffic patterns.
+- **Reconnect Timeout**: `--reconnect-timeout <seconds>` (Default: `60.0s`) specifies how long to wait before attempting to reconnect after a connection error or close. If set to `0`, the client will exit on error.
+- **Priority Flush**: `--low-latency-dscp` (Default: `0x48,0xb8`) flushes buffer immediately on matching IP headers. Enabled by default when buffering is active.
+- **Random Fill**: `--fill=all/throughput/none` (Default: `throughput`) to pad batches with random noise to obfuscate traffic patterns.
 - **Fingerprint Verification**: `-f` / `--fingerprint <SHA256>` in client mode protects against MITM. 
 - **Fingerprint Reporting**: In server mode, run `ssl-tun-tunnel -m server -f` to display the active certificate's fingerprints (Z85 and HEX) and exit.
 

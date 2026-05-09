@@ -20,7 +20,7 @@ packet-beta
 
 ## 2. Transmission Logic
 
-The tunnel operates in two modes: **Direct** and **Buffered**.
+The tunnel operates in two modes: **Direct** and **Buffered** (Default).
 
 ### Direct Mode (Standard)
 When buffering is disabled, every IP packet read from the TUN interface is immediately wrapped in a frame and sent over the SSL socket.

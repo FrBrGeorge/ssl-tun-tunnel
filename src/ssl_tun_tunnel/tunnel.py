@@ -25,6 +25,8 @@ DEFAULT_MTU = 1500
 # 1500 (MTU) - 20 (IP) - 20 (TCP) - 10 (SSL/Length safety) = 1450.
 TCP_MSS_FLUSH_THRESHOLD = DEFAULT_MTU - 50
 
+DEFAULT_LOW_LATENCY_DSCP = {0x48, 0xb8}
+
 
 def create_tun(name: str = 'tun0') -> int | None:
     """
@@ -167,9 +169,9 @@ def is_low_latency(packet: bytes, dscp_set: set[int]) -> bool:
 
 
 def run_server(host: str, port: int, certfile: str | Path, keyfile: str | Path | None, 
-               tun_ip: str | None, buffered: bool = False, flush_timeout: float = 1.0, 
-               low_latency_dscp: set[int] | None = None, fill: str = 'none', 
-               idle_timeout: float | None = None, reconnect_timeout: float = 0.0) -> None:
+               tun_ip: str | None, buffered: bool = True, flush_timeout: float = 1.0, 
+               low_latency_dscp: set[int] | None = None, fill: str = 'throughput', 
+               idle_timeout: float | None = None, reconnect_timeout: float = 60.0) -> None:
     """
     Runs the tunnel in server mode.
     
@@ -181,12 +183,16 @@ def run_server(host: str, port: int, certfile: str | Path, keyfile: str | Path |
         tun_ip (str): IP/CIDR for the TUN interface.
         buffered (bool): Enable packet buffering.
         flush_timeout (float): Buffer flush timeout in seconds.
-        low_latency_dscp (set): Set of ToS/TC bytes that trigger immediate flush.
+        low_latency_dscp (set): Set of ToS/TC bytes that trigger immediate flush. 
+                               Defaults to {0x48, 0xb8} (SSH, DNS, Interactive).
         fill (str): Random fill mode ('all', 'throughput', 'none').
         idle_timeout (float): Idle timeout in seconds to close unused connection.
         reconnect_timeout (float): Not used in server mode for the main listen loop, 
                                   but added for signature consistency.
     """
+    if low_latency_dscp is None:
+        low_latency_dscp = DEFAULT_LOW_LATENCY_DSCP
+
     tun_fd = create_tun()
     if tun_fd is None:
         return
@@ -224,10 +230,10 @@ def run_server(host: str, port: int, certfile: str | Path, keyfile: str | Path |
 
 
 def run_client(server_host: str, server_port: int, tun_ip: str | None, 
-               expected_fingerprint: str | None = None, buffered: bool = False, 
+               expected_fingerprint: str | None = None, buffered: bool = True, 
                flush_timeout: float = 1.0, low_latency_dscp: set[int] | None = None, 
-               fill: str = 'none', idle_timeout: float | None = None, 
-               reconnect_timeout: float = 0.0) -> None:
+               fill: str = 'throughput', idle_timeout: float | None = None, 
+               reconnect_timeout: float = 60.0) -> None:
     """
     Runs the tunnel in client mode.
     
@@ -239,10 +245,14 @@ def run_client(server_host: str, server_port: int, tun_ip: str | None,
         buffered (bool): Enable packet buffering.
         flush_timeout (float): Buffer flush timeout in seconds.
         low_latency_dscp (set): Set of ToS/TC bytes that trigger immediate flush.
+                               Defaults to {0x48, 0xb8} (SSH, DNS, Interactive).
         fill (str): Random fill mode ('all', 'throughput', 'none').
         idle_timeout (float): Idle timeout in seconds to close unused connection.
         reconnect_timeout (float): Wait time before reconnecting on error. If 0, exit on error.
     """
+    if low_latency_dscp is None:
+        low_latency_dscp = DEFAULT_LOW_LATENCY_DSCP
+
     tun_fd = create_tun()
     if tun_fd is None:
         return
@@ -306,8 +316,8 @@ def run_client(server_host: str, server_port: int, tun_ip: str | None,
                 continue
 
 
-def handle_tunnel(tun_fd: int, ssl_sock: ssl.SSLSocket, buffered: bool = False, flush_timeout: float = 1.0, 
-                  low_latency_dscp: set[int] | None = None, fill: str = 'none', 
+def handle_tunnel(tun_fd: int, ssl_sock: ssl.SSLSocket, buffered: bool = True, flush_timeout: float = 1.0, 
+                  low_latency_dscp: set[int] | None = None, fill: str = 'throughput', 
                   idle_timeout: float | None = None) -> bool:
     """
     Handles the bidirectional traffic between the TUN device and the SSL socket.
@@ -321,6 +331,9 @@ def handle_tunnel(tun_fd: int, ssl_sock: ssl.SSLSocket, buffered: bool = False, 
         fill (str): Random fill mode ('all', 'throughput', 'none').
         idle_timeout (float): Idle timeout in seconds to close unused connection.
     """
+    if low_latency_dscp is None:
+        low_latency_dscp = DEFAULT_LOW_LATENCY_DSCP
+
     ssl_sock.setblocking(0)
     
     # Buffering state

@@ -21,7 +21,7 @@ cert = "server.pem"
 # key = "server.key"
 
 # Enable packet buffering
-# Default: false
+# Default: true
 buffered = true
 
 # Buffer flush timeout in seconds
@@ -32,11 +32,12 @@ flush_timeout = 1.0
 # idle_timeout = 300.0
 
 # Wait time before reconnecting on error in seconds. If 0, exit on error.
-# reconnect_timeout = 5.0
+# Default: 60.0
+# reconnect_timeout = 60.0
 
 # Random fill mode for flushed batches: "all", "throughput", or "none"
-# Default: "none"
-fill = "none"
+# Default: "throughput"
+fill = "throughput"
 
 # Comma-separated ToS/TC values that trigger immediate flush
 # Default: "0x48,0xb8"
