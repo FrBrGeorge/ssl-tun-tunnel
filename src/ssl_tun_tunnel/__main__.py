@@ -40,12 +40,12 @@ def parse_address(address_port: str | None, default_address: str | None, default
             return address_port, default_port
 
 
-def setup_logging(verbose_args: list[Any] | None, log_file: str | None) -> None:
+def setup_logging(verbose_args: Any | None, log_file: str | None) -> None:
     """
     Configures the logging levels and handlers.
     
     Args:
-        verbose_args (list): List of verbose arguments from argparse (count or string).
+        verbose_args (Any): List of verbose arguments from argparse or single value from config.
         log_file (str): Path to a log file.
     """
     mapping = logging.getLevelNamesMapping()
@@ -56,7 +56,13 @@ def setup_logging(verbose_args: list[Any] | None, log_file: str | None) -> None:
     explicit_levels = None
 
     if verbose_args:
-        for arg in verbose_args:
+        # If it came from config it might not be a list
+        if not isinstance(verbose_args, list):
+            v_list = [verbose_args]
+        else:
+            v_list = verbose_args
+
+        for arg in v_list:
             if isinstance(arg, str):
                 # Check for -vv / -vvv style where 'v's are captured as the optional argument
                 if all(c.lower() == 'v' for c in arg):
@@ -127,7 +133,6 @@ def main() -> None:
         description='SSL TUN Tunnel',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    parser.set_defaults(**config)
 
     parser.add_argument('address', nargs='?', help='Server address (host:port) or listening port (port)')
     parser.add_argument('-m', '--mode', choices=['server', 'client'], default='client', help='Mode of operation')
@@ -153,6 +158,8 @@ def main() -> None:
     parser.add_argument('-f', '--fingerprint', nargs='?', const=True, 
                         help='Expected Z85 or HEX fingerprint (client). In server mode, providing this without a '
                              'parameter prints the server fingerprint and exits.')
+
+    parser.set_defaults(**config)
 
     args = parser.parse_args()
 
