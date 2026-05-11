@@ -133,7 +133,7 @@ class TestTunnelLogic(unittest.TestCase):
                 with patch('ssl_tun_tunnel.tunnel.os.urandom', return_value=b'J'*446) as mock_urandom:
                     with patch('ssl_tun_tunnel.tunnel.time.time', side_effect=times):
                         try:
-                            handle_tunnel(mock_tun_fd, mock_ssl_sock, buffered=True, fill='all', flush_timeout=1.0)
+                            handle_tunnel(mock_tun_fd, mock_ssl_sock, buffered=True, fill='all', flush_timeout=0.3)
                         except Exception:
                             pass
         
@@ -165,7 +165,7 @@ class TestTunnelLogic(unittest.TestCase):
             with patch('os.read', side_effect=[b'P1', b'P2', b'']):
                 with patch('time.time', side_effect=times):
                     try:
-                        handle_tunnel(mock_tun_fd, mock_ssl_sock, buffered=True, flush_timeout=1.0, fill='none')
+                        handle_tunnel(mock_tun_fd, mock_ssl_sock, buffered=True, flush_timeout=0.3, fill='none')
                     except Exception:
                         pass
         

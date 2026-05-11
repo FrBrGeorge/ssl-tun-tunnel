@@ -69,7 +69,7 @@ mode = "client"
 address = "localhost:1443"
 tun_ip = "192.168.255.2/24"
 buffered = true
-timeout = 1.0
+timeout = 0.3
 log_packet_size = "none"
 ```
 
@@ -79,7 +79,7 @@ log_packet_size = "none"
   - Available levels: `CRITICAL`, `ERROR`, `WARNING`, `INFO`, `DEBUG`.
   - Default: `ERROR` (console), `WARNING` (file).
 - **Buffering**: Enabled by default. Use `--no-buffering` to disable.
-- **Flush Timeout**: `--flush-timeout <seconds>` (Default: `1.0s`) sets the maximum delay for buffered packets.
+- **Flush Timeout**: `--flush-timeout <seconds>` (Default: `0.3s`) sets the maximum delay for buffered packets.
 - **Idle Timeout**: `--idle-timeout <seconds>` closes the connection if no traffic is detected. In client mode, it will reconnect only when new packets are seen on `tun0`.
 - **Reconnect Timeout**: `--reconnect-timeout <seconds>` (Default: `60.0s`) specifies how long to wait before attempting to reconnect after a connection error or close. If set to `0`, the client will exit on error.
 - **Priority Flush**: `--low-latency-dscp` (Default: `0x48,0xb8`) flushes buffer immediately on matching IP headers. Enabled by default when buffering is active.

@@ -31,7 +31,7 @@ When enabled, packets are collected in an internal queue before being sent as a 
 #### Flush Algorithms
 The buffer is "flushed" (sent) when any of the following conditions are met:
 1. **Size Flush**: The total size of buffered packets reaches the `TCP_MSS_FLUSH_THRESHOLD` (default: 1450 bytes). This ensures the batch typically fits within a single standard MTU Ethernet frame.
-2. **Timeout Flush**: The `flush_timeout` (default: 1.0s) has elapsed since the last flush.
+2. **Timeout Flush**: The `flush_timeout` (default: 0.3s) has elapsed since the last flush.
 3. **Priority Flush**: A packet with a specific DSCP/ToS value (matching the `--low-latency-dscp` set) is detected. The buffer is flushed immediately to ensure minimal delay for real-time traffic (e.g., DNS, SSH, VoIP).
 
 ## 3. Traffic Obfuscation (Random Fill)

@@ -25,8 +25,8 @@ cert = "server.pem"
 buffered = true
 
 # Buffer flush timeout in seconds
-# Default: 1.0
-flush_timeout = 1.0
+# Default: 0.3
+flush_timeout = 0.3
 
 # Idle timeout in seconds to close unused connection
 # idle_timeout = 300.0

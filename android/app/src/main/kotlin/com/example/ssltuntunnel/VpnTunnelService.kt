@@ -51,16 +51,18 @@ class VpnTunnelService : VpnService() {
         val tunIp = intent?.getStringExtra("TUN_IP") ?: "10.0.0.2/24"
         val fingerprint = intent?.getStringExtra("FINGERPRINT")
         val buffered = intent?.getBooleanExtra("BUFFERED", true) ?: true
-        val flushTimeout = intent?.getLongExtra("FLUSH_TIMEOUT", 1000L) ?: 1000L
+        val flushTimeout = intent?.getLongExtra("FLUSH_TIMEOUT", 300L) ?: 300L
+        val reconnectTimeout = intent?.getLongExtra("RECONNECT_TIMEOUT", 60L) ?: 60L
         val fillMode = intent?.getStringExtra("FILL_MODE") ?: "throughput"
         val verbosity = intent?.getIntExtra("VERBOSITY", 1) ?: 1
 
-        startVpn(serverHost, serverPort, tunIp, fingerprint, buffered, flushTimeout, fillMode, verbosity)
+        startVpn(serverHost, serverPort, tunIp, fingerprint, buffered, flushTimeout, fillMode, verbosity, reconnectTimeout)
         return START_STICKY
     }
 
     private fun startVpn(host: String, port: Int, tunIp: String, fingerprint: String?, 
-                         buffered: Boolean, flushTimeout: Long, fillMode: String, verbosity: Int) {
+                         buffered: Boolean, flushTimeout: Long, fillMode: String, verbosity: Int, 
+                         reconnectTimeout: Long) {
         if (isRunning.get()) return
         isRunning.set(true)
 
@@ -78,8 +80,13 @@ class VpnTunnelService : VpnService() {
                 
                 if (!isRunning.get()) break
                 
+                if (reconnectTimeout <= 0) {
+                    broadcastLog(0, "Auto-reconnect disabled. Stopping.")
+                    break
+                }
+
                 retryCount++
-                val sleepTime = minOf(30000L, 1000L * retryCount)
+                val sleepTime = minOf(reconnectTimeout * 1000L, 1000L * retryCount)
                 broadcastLog(1, "Reconnecting in ${sleepTime/1000}s... (Attempt $retryCount)")
                 try {
                     Thread.sleep(sleepTime)

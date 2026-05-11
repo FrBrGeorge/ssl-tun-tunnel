@@ -142,7 +142,7 @@ def main() -> None:
                              f'(e.g. -v INFO,DEBUG). Available levels: {", ".join(LEVELS_ORDERED)}')
     parser.add_argument('-b', '--buffered', action='store_true', default=True, help='Enable packet buffering (on by default)')
     parser.add_argument('--no-buffering', action='store_false', dest='buffered', help='Disable packet buffering')
-    parser.add_argument('--flush-timeout', type=float, default=1.0, help='Buffer flush timeout in seconds')
+    parser.add_argument('--flush-timeout', type=float, default=0.3, help='Buffer flush timeout in seconds')
     parser.add_argument('--idle-timeout', type=float, help='Idle timeout in seconds to close unused connection')
     parser.add_argument('--reconnect-timeout', type=float, default=60.0, 
                         help='Wait time before reconnecting on error. If 0, exit on error.')

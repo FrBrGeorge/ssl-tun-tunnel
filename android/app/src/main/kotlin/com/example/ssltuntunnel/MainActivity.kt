@@ -114,7 +114,8 @@ class MainActivity : AppCompatActivity() {
             putString("tunIp", findViewById<EditText>(R.id.editTunIp).text.toString())
             putString("fingerprint", findViewById<EditText>(R.id.editFingerprint).text.toString())
             putBoolean("buffered", findViewById<CheckBox>(R.id.checkBuffered).isChecked)
-            putLong("flushTimeout", findViewById<EditText>(R.id.editFlushTimeout).text.toString().toLongOrNull() ?: 1000L)
+            putLong("flushTimeout", findViewById<EditText>(R.id.editFlushTimeout).text.toString().toLongOrNull() ?: 300L)
+            putLong("reconnectTimeout", findViewById<EditText>(R.id.editReconnectTimeout).text.toString().toLongOrNull() ?: 60L)
             putInt("fillModeId", findViewById<RadioGroup>(R.id.groupFill).checkedRadioButtonId)
             putInt("verbosity", findViewById<Spinner>(R.id.spinnerVerbosity).selectedItemPosition)
             apply()
@@ -128,7 +129,8 @@ class MainActivity : AppCompatActivity() {
         findViewById<EditText>(R.id.editTunIp).setText(prefs.getString("tunIp", "10.0.1.2/24"))
         findViewById<EditText>(R.id.editFingerprint).setText(prefs.getString("fingerprint", ""))
         findViewById<CheckBox>(R.id.checkBuffered).isChecked = prefs.getBoolean("buffered", true)
-        findViewById<EditText>(R.id.editFlushTimeout).setText(prefs.getLong("flushTimeout", 1000L).toString())
+        findViewById<EditText>(R.id.editFlushTimeout).setText(prefs.getLong("flushTimeout", 300L).toString())
+        findViewById<EditText>(R.id.editReconnectTimeout).setText(prefs.getLong("reconnectTimeout", 60L).toString())
         val fillModeId = prefs.getInt("fillModeId", R.id.radioFillThroughput)
         if (fillModeId != -1) {
             findViewById<RadioGroup>(R.id.groupFill).check(fillModeId)
@@ -149,7 +151,8 @@ class MainActivity : AppCompatActivity() {
             val tunIp = findViewById<EditText>(R.id.editTunIp).text.toString()
             val fingerprint = findViewById<EditText>(R.id.editFingerprint).text.toString().takeIf { it.isNotEmpty() }
             val buffered = findViewById<CheckBox>(R.id.checkBuffered).isChecked
-            val flushTimeout = findViewById<EditText>(R.id.editFlushTimeout).text.toString().toLongOrNull() ?: 1000L
+            val flushTimeout = findViewById<EditText>(R.id.editFlushTimeout).text.toString().toLongOrNull() ?: 300L
+            val reconnectTimeout = findViewById<EditText>(R.id.editReconnectTimeout).text.toString().toLongOrNull() ?: 60L
             
             val fillMode = when (findViewById<RadioGroup>(R.id.groupFill).checkedRadioButtonId) {
                 R.id.radioFillAll -> "all"
@@ -166,6 +169,7 @@ class MainActivity : AppCompatActivity() {
                 putExtra("FINGERPRINT", fingerprint)
                 putExtra("BUFFERED", buffered)
                 putExtra("FLUSH_TIMEOUT", flushTimeout)
+                putExtra("RECONNECT_TIMEOUT", reconnectTimeout)
                 putExtra("FILL_MODE", fillMode)
                 putExtra("VERBOSITY", verbosity)
             }
