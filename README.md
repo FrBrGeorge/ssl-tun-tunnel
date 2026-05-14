@@ -6,6 +6,7 @@ A high-performance, secure Layer 3 (IP) tunneling solution written in Python. It
 
 - **Layer 3 Tunneling**: Creates virtual `tun0` interfaces to route IP traffic.
 - **SSL Encryption**: All traffic between nodes is encrypted using SSL/TLS sockets.
+- **HTTP Status Page**: Server mode serves an interactive status page for easy client configuration.
 - **Bi-directional Traffic**: Full-duplex communication for seamless networking.
 - **PEM Support**: Supports combined `.pem` files for easy certificate management.
 - **Auto-Generation**: Built-in utility to generate self-signed certificates.
@@ -37,12 +38,14 @@ The `ssl-tun-tunnel` tool now uses positional arguments for addresses and suppor
 
 **1. Generate a self-signed certificate:**
 ```bash
-ssl-tun-tunnel -g server.pem
+# -g takes the Server Name (CN), -c takes the output filename
+ssl-tun-tunnel -g localhost -c server.pem
 ```
 
 **2. Start the Server:**
 ```bash
 # Listen on all interfaces on port 1443
+# The server now also hosts an HTTP status page at this address/port
 ssl-tun-tunnel 1443 -m server -i 192.168.255.1/24
 
 # Listen on a specific address only
@@ -57,7 +60,7 @@ ssl-tun-tunnel <SERVER_IP>:1443 -i 192.168.255.2/24
 
 **4. Using a configuration file:**
 ```bash
-ssl-tun-tunnel -c config.toml
+ssl-tun-tunnel -C config.toml
 ```
 
 ## Configuration
@@ -78,6 +81,8 @@ log_packet_size = "none"
 - **Verbosity**: `-v` to increase logging levels for console and file. Supports multiple flags (e.g., `-vv`, `-vvv`) or explicit naming: `-v console_level,file_level` (e.g., `-v INFO,DEBUG`).
   - Available levels: `CRITICAL`, `ERROR`, `WARNING`, `INFO`, `DEBUG`.
   - Default: `ERROR` (console), `WARNING` (file).
+- **Certificate**: `-c` / `--cert <path>` (Default: `server.pem`) specifies the combined PEM or certificate file.
+- **Config**: `-C` / `--config <path>` to load settings from a TOML file.
 - **Buffering**: Enabled by default. Use `--no-buffering` to disable.
 - **Flush Timeout**: `--flush-timeout <seconds>` (Default: `0.3s`) sets the maximum delay for buffered packets.
 - **Idle Timeout**: `--idle-timeout <seconds>` closes the connection if no traffic is detected. In client mode, it will reconnect only when new packets are seen on `tun0`.
@@ -86,6 +91,7 @@ log_packet_size = "none"
 - **Random Fill**: `--fill=all/throughput/none` (Default: `throughput`) to pad batches with random noise to obfuscate traffic patterns.
 - **Fingerprint Verification**: `-f` / `--fingerprint <SHA256>` in client mode protects against MITM. 
 - **Fingerprint Reporting**: In server mode, run `ssl-tun-tunnel -m server -f` to display the active certificate's fingerprints (Z85 and HEX) and exit.
+- **HTTP Status Page**: When running in server mode, the server listens for HTTP GET requests. Opening the server's address in a web browser will display a status page with fingerprints and recommended client configuration.
 
 ## Clients
 

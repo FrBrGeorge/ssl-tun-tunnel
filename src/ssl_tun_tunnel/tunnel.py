@@ -71,21 +71,22 @@ def configure_ip(name: str, ip_cidr: str) -> None:
         logging.warning("You may need to configure it manually.")
 
 
-def generate_pem(filename: str | Path = 'server.pem') -> None:
+def generate_pem(filename: str | Path = 'server.pem', server_name: str = 'localhost') -> None:
     """
     Generates a self-signed certificate and private key in a single .pem file.
     
     Args:
         filename (str or Path): The name of the file to save the PEM data to.
+        server_name (str): The common name (CN) for the certificate.
     """
     filename = Path(filename)
-    logging.info(f"Generating self-signed PEM: {filename}...")
+    logging.info(f"Generating self-signed PEM: {filename} for {server_name}...")
     try:
         # Generate a self-signed certificate and key in one file
         subprocess.run([
             'openssl', 'req', '-x509', '-newkey', 'rsa:4096', 
             '-keyout', str(filename), '-out', str(filename), 
-            '-days', '365', '-nodes', '-subj', '/CN=localhost'
+            '-days', '365', '-nodes', '-subj', f'/CN={server_name}'
         ], check=True)
         logging.info(f"Successfully generated {filename}")
     except Exception:

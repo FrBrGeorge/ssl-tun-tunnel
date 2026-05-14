@@ -13,7 +13,7 @@ address = "localhost:1443"
 # Required
 tun_ip = "192.168.255.1/24"
 
-# Path to the .pem certificate file
+# Path to the .pem certificate file (can also be specified with -c)
 # Default: "server.pem"
 cert = "server.pem"
 
@@ -33,7 +33,7 @@ flush_timeout = 0.3
 
 # Wait time before reconnecting on error in seconds. If 0, exit on error.
 # Default: 60.0
-# reconnect_timeout = 60.0
+reconnect_timeout = 60.0
 
 # Random fill mode for flushed batches: "all", "throughput", or "none"
 # Default: "throughput"
