@@ -22,7 +22,7 @@ classifiers = [
 "Bug Tracker" = "https://github.com/FrBrGeorge/ssl-tun-tunnel/issues"
 
 [tool.setuptools.package-data]
-"ssl_tun_tunnel" = ["*.toml.example"]
+"ssl_tun_tunnel" = ["*.toml.example", "*.html"]
 
 [project.scripts]
 ssl-tun-tunnel = "ssl_tun_tunnel.__main__:main"

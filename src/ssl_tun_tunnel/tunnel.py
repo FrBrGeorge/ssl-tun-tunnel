@@ -207,11 +207,11 @@ def run_server(host: str, port: int, certfile: str | Path, keyfile: str | Path |
         buffered (bool): Enable packet buffering.
         flush_timeout (float): Buffer flush timeout in seconds.
         low_latency_dscp (set): Set of ToS/TC bytes that trigger immediate flush. 
-                               Defaults to {0x48, 0xb8} (SSH, DNS, Interactive).
+                                Defaults to {0x48, 0xb8} (SSH, DNS, Interactive).
         fill (str): Random fill mode ('all', 'throughput', 'none').
         idle_timeout (float): Idle timeout in seconds to close unused connection.
         reconnect_timeout (float): Not used in server mode for the main listen loop, 
-                                  but added for signature consistency.
+                                   but added for signature consistency.
     """
     if low_latency_dscp is None:
         low_latency_dscp = DEFAULT_LOW_LATENCY_DSCP
@@ -229,14 +229,15 @@ def run_server(host: str, port: int, certfile: str | Path, keyfile: str | Path |
         logging.exception(f"Error loading certificates from {certfile}")
         return
 
-    fingerprint = get_cert_fingerprint(certfile)
-    if fingerprint:
-        logging.info(f"Server Fingerprint (Z85): {fingerprint}")
+    fp_z85 = get_cert_fingerprint(certfile)
+    fp_hex = get_cert_fingerprint(certfile, encoding='hex')
+    if fp_z85:
+        logging.info(f"Server Fingerprint (Z85): {fp_z85}")
 
     server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_sock.bind((host, port))
-    server_sock.listen(1)
+    server_sock.listen(5)
 
     logging.info(f"Server listening on {host}:{port}...")
 
@@ -245,11 +246,92 @@ def run_server(host: str, port: int, certfile: str | Path, keyfile: str | Path |
         logging.info(f"Connection from {addr}")
         try:
             ssl_sock = context.wrap_socket(client_sock, server_side=True)
-            handle_tunnel(tun_fd, ssl_sock, buffered, flush_timeout, low_latency_dscp, fill, idle_timeout)
+            
+            # Detect protocol: HTTP or Tunnel?
+            ssl_sock.setblocking(False)
+            initial_data = b''
+            start_time = time.time()
+            # Wait up to 0.5s for initial bytes to identify protocol
+            while len(initial_data) < 4 and (time.time() - start_time) < 0.5:
+                try:
+                    chunk = ssl_sock.recv(4 - len(initial_data))
+                    if not chunk: break
+                    initial_data += chunk
+                except (ssl.SSLWantReadError, ssl.SSLWantWriteError):
+                    time.sleep(0.01)
+                    continue
+                except Exception:
+                    break
+            
+            if initial_data.startswith((b'GET ', b'POST', b'HEAD', b'PUT ', b'DELE', b'OPTI')):
+                handle_http(ssl_sock, fp_z85, fp_hex, host, port, tun_ip)
+            else:
+                handle_tunnel(tun_fd, ssl_sock, buffered, flush_timeout, low_latency_dscp, fill, idle_timeout, initial_data=initial_data)
         except Exception:
             logging.exception(f"Connection error from {addr}")
         finally:
-            client_sock.close()
+            try:
+                client_sock.close()
+            except:
+                pass
+
+
+def handle_http(ssl_sock: ssl.SSLSocket, fingerprint_z85: str | None, fingerprint_hex: str | None, 
+                server_addr: str, server_port: int, tun_ip: str | None) -> None:
+    """Serves a static HTTP page with configuration details."""
+    proposed_ip = "192.168.255.2/24"
+    if tun_ip and '/' in tun_ip:
+        try:
+            base, mask = tun_ip.split('/')
+            parts = base.split('.')
+            if len(parts) == 4:
+                last = int(parts[3])
+                parts[3] = str(last + 1) if last < 254 else str(last - 1)
+                proposed_ip = f"{'.'.join(parts)}/{mask}"
+        except:
+            pass
+
+    display_host = server_addr
+    if display_host in ('0.0.0.0', '::', ''):
+        try:
+            display_host = ssl_sock.getsockname()[0]
+            if display_host in ('0.0.0.0', '::', ''):
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                display_host = s.getsockname()[0]
+                s.close()
+        except:
+            pass
+
+    try:
+        template_path = Path(__file__).parent / "status.html"
+        template_content = template_path.read_text(encoding="utf-8")
+        html = template_content.format(
+            display_host=display_host,
+            server_port=server_port,
+            fingerprint_z85=fingerprint_z85 or 'N/A',
+            fingerprint_hex=fingerprint_hex or 'N/A',
+            proposed_ip=proposed_ip
+        )
+    except Exception as e:
+        logging.error(f"Failed to load status.html template: {e}")
+        try:
+            html = (Path(__file__).parent / "error.html").read_text(encoding="utf-8")
+        except:
+            html = "<h1>Internal Server Error</h1><p>Status template missing.</p>"
+
+    response = (
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/html; charset=utf-8\r\n"
+        f"Content-Length: {len(html.encode('utf-8'))}\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+        f"{html}"
+    )
+    try:
+        ssl_sock.sendall(response.encode('utf-8'))
+    except:
+        pass
 
 
 def run_client(server_host: str, server_port: int, tun_ip: str | None, 
@@ -341,7 +423,7 @@ def run_client(server_host: str, server_port: int, tun_ip: str | None,
 
 def handle_tunnel(tun_fd: int, ssl_sock: ssl.SSLSocket, buffered: bool = True, flush_timeout: float = 0.3, 
                   low_latency_dscp: set[int] | None = None, fill: str = 'throughput', 
-                  idle_timeout: float | None = None) -> bool:
+                  idle_timeout: float | None = None, initial_data: bytes = b'') -> bool:
     """
     Handles the bidirectional traffic between the TUN device and the SSL socket.
     
@@ -364,7 +446,7 @@ def handle_tunnel(tun_fd: int, ssl_sock: ssl.SSLSocket, buffered: bool = True, f
     buffer_bytes = 0
     last_flush = time.time()
     last_activity = time.time()
-    ssl_recv_buffer = b''
+    ssl_recv_buffer = initial_data
     
     JUNK_BIT = 0x8000
 
@@ -489,32 +571,35 @@ def handle_tunnel(tun_fd: int, ssl_sock: ssl.SSLSocket, buffered: bool = True, f
                     except Exception:
                         logging.exception("Error receiving from SSL")
                         return False
-                
-                # 2. Process all complete frames in the buffer
-                while len(ssl_recv_buffer) >= 2:
-                    header = ssl_recv_buffer[:2]
-                    val = struct.unpack('!H', header)[0]
-                    is_junk = bool(val & JUNK_BIT)
-                    length = val & ~JUNK_BIT
-                    
-                    if len(ssl_recv_buffer) < 2 + length:
-                        # Incomplete packet, wait for more data
-                        break
-                    
-                    packet = ssl_recv_buffer[2:2+length]
-                    # Advance buffer
-                    ssl_recv_buffer = ssl_recv_buffer[2+length:]
-                    
-                    if not is_junk:
-                        logging.debug(f"SSL -> TUN: {len(packet)} bytes [{get_packet_info(packet)}]")
-                        try:
-                            os.write(tun_fd, packet)
-                        except Exception:
-                            logging.exception("Error writing to TUN interface")
-                            return False
-                    else:
-                        logging.debug(f"SSL -> TUN: {len(packet)} bytes [JUNK - dropped]")
-
             except Exception:
                 logging.exception("Tunnel error during socket processing")
                 return False
+        
+        # 2. Process all complete frames in the buffer
+        try:
+            while len(ssl_recv_buffer) >= 2:
+                header = ssl_recv_buffer[:2]
+                val = struct.unpack('!H', header)[0]
+                is_junk = bool(val & JUNK_BIT)
+                length = val & ~JUNK_BIT
+                
+                if len(ssl_recv_buffer) < 2 + length:
+                    # Incomplete packet, wait for more data
+                    break
+                
+                packet = ssl_recv_buffer[2:2+length]
+                # Advance buffer
+                ssl_recv_buffer = ssl_recv_buffer[2+length:]
+                
+                if not is_junk:
+                    logging.debug(f"SSL -> TUN: {len(packet)} bytes [{get_packet_info(packet)}]")
+                    try:
+                        os.write(tun_fd, packet)
+                    except Exception:
+                        logging.exception("Error writing to TUN interface")
+                        return False
+                else:
+                    logging.debug(f"SSL -> TUN: {len(packet)} bytes [JUNK - dropped]")
+        except Exception:
+            logging.exception("Error processing buffered frames")
+            return False
