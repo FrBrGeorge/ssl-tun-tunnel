@@ -13,7 +13,7 @@ address = "localhost:1443"
 # Required
 tun_ip = "192.168.255.1/24"
 
-# Path to the .pem certificate file (can also be specified with -c)
+# Path to the .pem certificate file (can also be specified with -C)
 # Default: "server.pem"
 cert = "server.pem"
 

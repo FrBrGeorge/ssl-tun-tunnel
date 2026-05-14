@@ -113,7 +113,7 @@ def setup_logging(verbose_args: Any | None, log_file: str | None) -> None:
 def main() -> None:
     # Pre-parse for config file
     pre_parser = argparse.ArgumentParser(add_help=False)
-    pre_parser.add_argument('-C', '--config', type=str)
+    pre_parser.add_argument('-c', '--config', type=str)
     pre_args, _ = pre_parser.parse_known_args()
 
     config = {}
@@ -136,9 +136,9 @@ def main() -> None:
 
     parser.add_argument('address', nargs='?', help='Server address (host:port) or listening port (port)')
     parser.add_argument('-m', '--mode', choices=['server', 'client'], default='client', help='Mode of operation')
-    parser.add_argument('-C', '--config', type=str, help='Path to an optional TOML configuration file')
+    parser.add_argument('-c', '--config', type=str, help='Path to an optional TOML configuration file')
     parser.add_argument('-i', '--tun-ip', type=str, help='IP/CIDR for tun0 (e.g. 192.168.255.1/24)')
-    parser.add_argument('-c', '--cert', type=str, default='server.pem', help='Cert file or combined .pem file')
+    parser.add_argument('-C', '--cert', type=str, default='server.pem', help='Cert file or combined .pem file')
     parser.add_argument('--key', type=str, help='Key file (optional if using combined .pem)')
     parser.add_argument('-g', '--generate', type=str, help='Generate a self-signed .pem file for the given server name and exit')
     parser.add_argument('-l', '--log-file', type=str, help='Path to a log file')

@@ -38,8 +38,8 @@ The `ssl-tun-tunnel` tool now uses positional arguments for addresses and suppor
 
 **1. Generate a self-signed certificate:**
 ```bash
-# -g takes the Server Name (CN), -c takes the output filename
-ssl-tun-tunnel -g localhost -c server.pem
+# -g takes the Server Name (CN), -C takes the output filename
+ssl-tun-tunnel -g localhost -C server.pem
 ```
 
 **2. Start the Server:**
@@ -60,7 +60,7 @@ ssl-tun-tunnel <SERVER_IP>:1443 -i 192.168.255.2/24
 
 **4. Using a configuration file:**
 ```bash
-ssl-tun-tunnel -C config.toml
+ssl-tun-tunnel -c config.toml
 ```
 
 ## Configuration
@@ -81,8 +81,8 @@ log_packet_size = "none"
 - **Verbosity**: `-v` to increase logging levels for console and file. Supports multiple flags (e.g., `-vv`, `-vvv`) or explicit naming: `-v console_level,file_level` (e.g., `-v INFO,DEBUG`).
   - Available levels: `CRITICAL`, `ERROR`, `WARNING`, `INFO`, `DEBUG`.
   - Default: `ERROR` (console), `WARNING` (file).
-- **Certificate**: `-c` / `--cert <path>` (Default: `server.pem`) specifies the combined PEM or certificate file.
-- **Config**: `-C` / `--config <path>` to load settings from a TOML file.
+- **Certificate**: `-C` / `--cert <path>` (Default: `server.pem`) specifies the combined PEM or certificate file.
+- **Config**: `-c` / `--config <path>` to load settings from a TOML file.
 - **Buffering**: Enabled by default. Use `--no-buffering` to disable.
 - **Flush Timeout**: `--flush-timeout <seconds>` (Default: `0.3s`) sets the maximum delay for buffered packets.
 - **Idle Timeout**: `--idle-timeout <seconds>` closes the connection if no traffic is detected. In client mode, it will reconnect only when new packets are seen on `tun0`.
