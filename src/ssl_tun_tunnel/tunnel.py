@@ -325,6 +325,7 @@ def handle_http(ssl_sock: ssl.SSLSocket, fingerprint_z85: str | None, fingerprin
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: text/html; charset=utf-8\r\n"
         f"Content-Length: {len(html.encode('utf-8'))}\r\n"
+        "Strict-Transport-Security: max-age=0\r\n"
         "Connection: close\r\n"
         "\r\n"
         f"{html}"
