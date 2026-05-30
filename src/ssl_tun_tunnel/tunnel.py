@@ -195,7 +195,8 @@ def robust_sendall(ssl_sock: ssl.SSLSocket, data: bytes) -> None:
 def run_server(host: str, port: int, certfile: str | Path, keyfile: str | Path | None, 
                tun_ip: str | None, buffered: bool = True, flush_timeout: float = 0.3, 
                low_latency_dscp: set[int] | None = None, fill: str = 'throughput', 
-               idle_timeout: float | None = None, reconnect_timeout: float = 60.0) -> None:
+               idle_timeout: float | None = None, reconnect_timeout: float = 60.0,
+               detection_timeout: float = 0.5, http_timeout: float = 0.5) -> None:
     """
     Runs the tunnel in server mode.
     
@@ -213,6 +214,8 @@ def run_server(host: str, port: int, certfile: str | Path, keyfile: str | Path |
         idle_timeout (float): Idle timeout in seconds to close unused connection.
         reconnect_timeout (float): Not used in server mode for the main listen loop, 
                                    but added for signature consistency.
+        detection_timeout (float): Timeout for identifying protocol (HTTP vs Tunnel).
+        http_timeout (float): Timeout for HTTP client connections.
     """
     if low_latency_dscp is None:
         low_latency_dscp = DEFAULT_LOW_LATENCY_DSCP
@@ -246,26 +249,40 @@ def run_server(host: str, port: int, certfile: str | Path, keyfile: str | Path |
         client_sock, addr = server_sock.accept()
         logging.info(f"Connection from {addr}")
         try:
+            # Prevent indefinite hangs in handshake from slow clients
+            client_sock.settimeout(detection_timeout)
             ssl_sock = context.wrap_socket(client_sock, server_side=True)
             
             # Detect protocol: HTTP or Tunnel?
             ssl_sock.setblocking(False)
             initial_data = b''
             start_time = time.time()
-            # Wait up to 0.5s for initial bytes to identify protocol
-            while len(initial_data) < 4 and (time.time() - start_time) < 0.5:
+            # Wait up to detection_timeout for initial bytes to identify protocol
+            while len(initial_data) < 4 and (time.time() - start_time) < detection_timeout:
                 try:
-                    chunk = ssl_sock.recv(4 - len(initial_data))
-                    if not chunk: break
-                    initial_data += chunk
+                    time_remaining = detection_timeout - (time.time() - start_time)
+                    if time_remaining <= 0:
+                        break
+                    r, _, _ = select.select([ssl_sock], [], [], min(0.1, time_remaining))
+                    if ssl_sock in r:
+                        chunk = ssl_sock.recv(4 - len(initial_data))
+                        if not chunk: break
+                        initial_data += chunk
                 except (ssl.SSLWantReadError, ssl.SSLWantWriteError):
-                    time.sleep(0.01)
                     continue
                 except Exception:
                     break
             
+            if len(initial_data) < 4 and (time.time() - start_time) >= detection_timeout:
+                logging.warning(f"Connection from {addr} timed out during protocol detection ({detection_timeout}s)")
+                try:
+                    ssl_sock.close()
+                except:
+                    pass
+                continue
+
             if initial_data.startswith((b'GET ', b'POST', b'HEAD', b'PUT ', b'DELE', b'OPTI')):
-                handle_http(ssl_sock, fp_z85, fp_hex, host, port, tun_ip)
+                handle_http(ssl_sock, fp_z85, fp_hex, host, port, tun_ip, http_timeout=http_timeout, initial_data=initial_data)
             else:
                 handle_tunnel(tun_fd, ssl_sock, buffered, flush_timeout, low_latency_dscp, fill, idle_timeout, initial_data=initial_data)
         except Exception:
@@ -278,8 +295,35 @@ def run_server(host: str, port: int, certfile: str | Path, keyfile: str | Path |
 
 
 def handle_http(ssl_sock: ssl.SSLSocket, fingerprint_z85: str | None, fingerprint_hex: str | None, 
-                server_addr: str, server_port: int, tun_ip: str | None) -> None:
+                server_addr: str, server_port: int, tun_ip: str | None, http_timeout: float = 0.5,
+                initial_data: bytes = b'') -> None:
     """Serves a static HTTP page with configuration details."""
+    start_time = time.time()
+    ssl_sock.setblocking(False)
+    req_data = initial_data
+    
+    # Read rest of HTTP request headers (up to 8KB) within http_timeout
+    while b'\r\n\r\n' not in req_data and b'\n\n' not in req_data:
+        elapsed = time.time() - start_time
+        if elapsed >= http_timeout:
+            logging.warning("HTTP request headers read timeout exceeded")
+            break
+        try:
+            time_remaining = http_timeout - elapsed
+            r, _, _ = select.select([ssl_sock], [], [], min(0.5, max(0.01, time_remaining)))
+            if ssl_sock in r:
+                chunk = ssl_sock.recv(4096)
+                if not chunk:
+                    break
+                req_data += chunk
+                if len(req_data) > 8192:
+                    break
+        except (ssl.SSLWantReadError, ssl.SSLWantWriteError):
+            time.sleep(0.01)
+            continue
+        except Exception:
+            break
+
     proposed_ip = "192.168.255.2/24"
     if tun_ip and '/' in tun_ip:
         try:
@@ -330,10 +374,14 @@ def handle_http(ssl_sock: ssl.SSLSocket, fingerprint_z85: str | None, fingerprin
         "\r\n"
         f"{html}"
     )
+    # Send response under http_timeout constraint
+    time_left = max(0.1, http_timeout - (time.time() - start_time))
     try:
+        ssl_sock.settimeout(time_left)
         ssl_sock.sendall(response.encode('utf-8'))
-    except:
-        pass
+    except Exception as e:
+        logging.error(f"Failed to send HTTP response within timeout: {e}")
+
 
 
 def run_client(server_host: str, server_port: int, tun_ip: str | None, 

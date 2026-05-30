@@ -92,6 +92,8 @@ log_packet_size = "none"
 - **Fingerprint Verification**: `-f` / `--fingerprint <SHA256>` in client mode protects against MITM. 
 - **Fingerprint Reporting**: In server mode, run `ssl-tun-tunnel -m server -f` to display the active certificate's fingerprints (Z85 and HEX) and exit.
 - **HTTP Status Page**: When running in server mode, the server listens for HTTP GET requests. Opening the server's address in a web browser will display a status page with fingerprints and recommended client configuration.
+- **Protocol Detection Timeout**: `--detection-timeout <seconds>` (Default: `0.5s`) sets the timeout for identifying client protocol (HTTP vs Tunnel) once a connection is accepted.
+- **HTTP Client Timeout**: `--http-timeout <seconds>` (Default: `0.5s`) specifies the maximum session duration for HTTP landing page clients to prevent hanging connections.
 
 ## Clients
 

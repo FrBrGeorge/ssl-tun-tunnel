@@ -35,6 +35,14 @@ flush_timeout = 0.3
 # Default: 60.0
 reconnect_timeout = 60.0
 
+# Timeout in seconds for protocol detection (HTTP vs Tunnel) in server mode
+# Default: 0.5
+# detection_timeout = 0.5
+
+# Timeout in seconds for HTTP client connections (landing/status page) in server mode
+# Default: 0.5
+# http_timeout = 0.5
+
 # Random fill mode for flushed batches: "all", "throughput", or "none"
 # Default: "throughput"
 fill = "throughput"

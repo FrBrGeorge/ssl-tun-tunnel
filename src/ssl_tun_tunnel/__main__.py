@@ -151,6 +151,10 @@ def main() -> None:
     parser.add_argument('--idle-timeout', type=float, help='Idle timeout in seconds to close unused connection')
     parser.add_argument('--reconnect-timeout', type=float, default=60.0, 
                         help='Wait time before reconnecting on error. If 0, exit on error.')
+    parser.add_argument('--detection-timeout', type=float, default=0.5,
+                        help='Timeout in seconds for identifying protocol (HTTP vs Tunnel) in server mode')
+    parser.add_argument('--http-timeout', type=float, default=0.5,
+                        help='Timeout in seconds for HTTP client connection in server mode')
     parser.add_argument('--fill', choices=['all', 'throughput', 'none'], default='throughput', 
                         help='Random fill mode for flushed batches')
     parser.add_argument('--low-latency-dscp', type=str, default='0x48,0xb8', 
@@ -209,7 +213,8 @@ def main() -> None:
 
     if args.mode == 'server':
         run_server(host, port, args.cert, args.key, args.tun_ip, args.buffered, args.flush_timeout, dscp_set, 
-                   args.fill, args.idle_timeout, args.reconnect_timeout)
+                   args.fill, args.idle_timeout, args.reconnect_timeout,
+                   detection_timeout=args.detection_timeout, http_timeout=args.http_timeout)
     else:
         run_client(host, port, args.tun_ip, args.fingerprint, args.buffered, args.flush_timeout, dscp_set, 
                    args.fill, args.idle_timeout, args.reconnect_timeout)

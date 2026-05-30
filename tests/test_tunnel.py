@@ -310,5 +310,63 @@ class TestTunnelLogic(unittest.TestCase):
         expected_batch = struct.pack('!H', 1000) + p1 + struct.pack('!H', 500) + p2
         mock_ssl_sock.send.assert_any_call(expected_batch)
 
+
+class TestServerTimeouts(unittest.TestCase):
+    def setUp(self):
+        self.mock_ssl_sock = MagicMock()
+        self.mock_ssl_sock.pending.return_value = 0
+
+    def test_protocol_detection_timeout_no_data(self):
+        """Test that server closes connection if client sends absolutely no data within detection_timeout."""
+        # Mock socket recv to always raise SSLWantReadError
+        self.mock_ssl_sock.recv.side_effect = ssl.SSLWantReadError()
+        
+        # Mock select.select to return nothing (no ready files) to simulate timeout waiting for data
+        with patch('select.select', return_value=([], [], [])):
+            with patch('time.time', side_effect=[100.0, 100.1, 100.2, 100.3, 100.4, 100.6, 100.7]):
+                # Mock run_server dependencies. We'll mock wrap_socket to return our mock_ssl_sock.
+                mock_context = MagicMock()
+                mock_context.wrap_socket.return_value = self.mock_ssl_sock
+                
+                # Mock socket accept
+                mock_server_sock = MagicMock()
+                mock_server_sock.accept.side_effect = [(MagicMock(), ('127.0.0.1', 54321)), KeyboardInterrupt()] # Stop loop with KeyboardInterrupt
+                
+                with patch('socket.socket', return_value=mock_server_sock):
+                    with patch('ssl_tun_tunnel.tunnel.create_tun', return_value=99):
+                        with patch('ssl_tun_tunnel.tunnel.get_cert_fingerprint', return_value="FP"):
+                            with patch('ssl.create_default_context', return_value=mock_context):
+                                try:
+                                    # Test with default arguments to verify default detection_timeout=0.5
+                                    tunnel_mod.run_server(
+                                        '127.0.0.1', 1443, 'dummy.pem', None, None
+                                    )
+                                except KeyboardInterrupt:
+                                    pass
+                            
+        # The mock SSL socket should have been wrapped and set to non-blocking timeout mode and closed
+        self.mock_ssl_sock.close.assert_called()
+
+    def test_handle_http_timeout(self):
+        """Test that handle_http respects http_timeout and closes connection when slow."""
+        # mock_ssl_sock.recv raises SSLWantReadError or returns partial headers, never completes headers
+        self.mock_ssl_sock.recv.side_effect = ssl.SSLWantReadError()
+        ssl_recv_buffer = b'GET '
+        
+        # select.select returns nothing (no readability)
+        with patch('select.select', return_value=([], [], [])):
+            with patch('time.time', side_effect=[100.0, 100.1, 100.6, 100.7, 100.8]):
+                with patch('ssl_tun_tunnel.tunnel.Path.read_text', return_value="dummy html {{display_host}}"):
+                    # Test with default http_timeout=0.5
+                    tunnel_mod.handle_http(
+                        self.mock_ssl_sock, "FP_Z85", "FP_HEX", "127.0.0.1", 1443, None,
+                        initial_data=ssl_recv_buffer
+                    )
+                    
+        # Should set timeout before sending response
+        self.mock_ssl_sock.settimeout.assert_called()
+        self.mock_ssl_sock.sendall.assert_called()
+
+
 if __name__ == '__main__':
     unittest.main()
